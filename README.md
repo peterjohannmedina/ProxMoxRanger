@@ -8,6 +8,16 @@
   <strong>A modern, secure web-based hot-swap storage manager for Proxmox VE</strong>
 </p>
 
+<!-- Project motivation + screenshot for the repository page summary -->
+<p align="center">
+  <strong>Motivation</strong>
+</p>
+ProxMox Ranger was built so anyone running Proxmox on cluster/compute nodes can easily expose and access node-local block storage via SMB without spinning up a VM. It also makes it simple for nodes to access SMB shares hosted on other nodes — great for small clusters and shared local storage workflows.
+
+<p align="center">
+  <img src="assets/ProxMoxRanger1.png" alt="ProxMox Ranger UI screenshot" width="820"/>
+</p>
+
 <p align="center">
   <img src="https://img.shields.io/badge/Proxmox-VE%207%2B-orange" alt="Proxmox VE 7+"/>
   <img src="https://img.shields.io/badge/Python-3.7%2B-blue" alt="Python 3.7+"/>
@@ -33,7 +43,7 @@ Managing hot-swap drives in a home lab or production Proxmox environment shouldn
 
 ---
 
-## ✨ Features
+## Features
 
 ### Core Functionality
 
@@ -106,7 +116,7 @@ Managing hot-swap drives in a home lab or production Proxmox environment shouldn
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### One-Command Installation
 
@@ -324,7 +334,7 @@ pmranger/
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Service Won't Start
 
@@ -410,7 +420,7 @@ Contributions are welcome and appreciated! Here's how you can help:
 
 ### Ways to Contribute
 
-- 🐛 **Report bugs** via GitHub Issues
+- **Report bugs** via GitHub Issues
 - 💡 **Suggest features** in GitHub Discussions
 - 📖 **Improve documentation**
 - 🔧 **Submit pull requests**

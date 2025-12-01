@@ -93,9 +93,17 @@ prompt_port_selection() {
     echo "  Note: Port 8008 is used by ProxMenux and other services"
     echo ""
 
-    # Check if running in interactive mode (stdin is a terminal)
-    if [ ! -t 0 ]; then
+    # Check if running in interactive mode (stdin is a terminal AND stdout is a terminal)
+    if [ ! -t 0 ] || [ ! -t 1 ]; then
         print_warning "Non-interactive mode detected (piped installation)"
+        print_info "Using default port: $WEB_PORT"
+        echo ""
+        return
+    fi
+
+    # Check if running from curl pipe by testing if we can read
+    if ! exec 0</dev/tty 2>/dev/null; then
+        print_warning "Cannot access terminal for input"
         print_info "Using default port: $WEB_PORT"
         echo ""
         return
@@ -103,27 +111,33 @@ prompt_port_selection() {
 
     # Interactive mode with 20-second countdown
     print_info "You have 20 seconds to respond..."
+    echo -n "Use default port $WEB_PORT? (Y/n): "
 
-    # Read with timeout
-    if read -t 20 -p "Use default port $WEB_PORT? (Y/n): " -n 1 -r; then
+    # Read with timeout and error handling
+    if read -t 20 -n 1 -r REPLY 2>/dev/null; then
         echo
 
         if [[ $REPLY =~ ^[Nn]$ ]]; then
             while true; do
-                read -p "Enter custom port (1024-65535): " CUSTOM_PORT
-                if [[ "$CUSTOM_PORT" =~ ^[0-9]+$ ]] && [ "$CUSTOM_PORT" -ge 1024 ] && [ "$CUSTOM_PORT" -le 65535 ]; then
-                    WEB_PORT=$CUSTOM_PORT
-                    print_success "Using custom port: $WEB_PORT"
-                    break
+                echo -n "Enter custom port (1024-65535): "
+                if read -r CUSTOM_PORT 2>/dev/null; then
+                    if [[ "$CUSTOM_PORT" =~ ^[0-9]+$ ]] && [ "$CUSTOM_PORT" -ge 1024 ] && [ "$CUSTOM_PORT" -le 65535 ]; then
+                        WEB_PORT=$CUSTOM_PORT
+                        print_success "Using custom port: $WEB_PORT"
+                        break
+                    else
+                        print_error "Invalid port. Please enter a number between 1024 and 65535"
+                    fi
                 else
-                    print_error "Invalid port. Please enter a number between 1024 and 65535"
+                    print_warning "Read failed - using default port: $WEB_PORT"
+                    break
                 fi
             done
         else
             print_info "Using default port: $WEB_PORT"
         fi
     else
-        # Timeout occurred - use default
+        # Timeout or read failed - use default
         echo
         print_warning "No response received - using default port: $WEB_PORT"
     fi

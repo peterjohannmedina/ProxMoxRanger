@@ -20,7 +20,7 @@ VENV_DIR="$INSTALL_DIR/venv"
 
 # Service configuration
 SERVICE_NAME="proxmox-ranger.service"
-WEB_PORT=8008
+WEB_PORT=8010  # Default port (changed from 8008 to avoid conflicts with ProxMenux)
 
 # Color codes for output
 RED='\033[0;31m'
@@ -70,6 +70,33 @@ check_proxmox() {
         local pve_version=$(cat /etc/pve/.version)
         print_info "Detected Proxmox VE version: $pve_version"
     fi
+}
+
+# Prompt for port selection
+prompt_port_selection() {
+    echo ""
+    print_info "Port Configuration"
+    echo "  Default port: $WEB_PORT"
+    echo "  Note: Port 8008 is used by ProxMenux and other services"
+    echo ""
+    read -p "Use default port $WEB_PORT? (Y/n): " -n 1 -r
+    echo
+
+    if [[ $REPLY =~ ^[Nn]$ ]]; then
+        while true; do
+            read -p "Enter custom port (1024-65535): " CUSTOM_PORT
+            if [[ "$CUSTOM_PORT" =~ ^[0-9]+$ ]] && [ "$CUSTOM_PORT" -ge 1024 ] && [ "$CUSTOM_PORT" -le 65535 ]; then
+                WEB_PORT=$CUSTOM_PORT
+                print_success "Using custom port: $WEB_PORT"
+                break
+            else
+                print_error "Invalid port. Please enter a number between 1024 and 65535"
+            fi
+        done
+    else
+        print_info "Using default port: $WEB_PORT"
+    fi
+    echo ""
 }
 
 # Check if port is available
@@ -329,6 +356,7 @@ main() {
 
     check_root
     check_proxmox
+    prompt_port_selection
     check_port
 
     print_info "Starting installation..."

@@ -138,7 +138,7 @@ The installation script automatically:
 
 After installation, access ProxMox Ranger at:
 ```
-http://YOUR_PROXMOX_IP:8008
+http://YOUR_PROXMOX_IP:8010
 ```
 
 **Default Login:** Use your Proxmox host credentials (e.g., root and your root password)
@@ -156,7 +156,7 @@ http://YOUR_PROXMOX_IP:8008
 
 ### Network Requirements
 
-- **Port 8008**: Must be accessible from your management network
+- **Port 8010**: Must be accessible from your management network (default, configurable during installation)
 - **Private Network**: Recommended for security (IP whitelist enforced)
 
 ---
@@ -182,7 +182,7 @@ http://YOUR_PROXMOX_IP:8008
    ```
 
 4. **Access the web UI**
-   - Open browser to `http://YOUR_PROXMOX_IP:8008`
+   - Open browser to `http://YOUR_PROXMOX_IP:8010`
    - Login with Proxmox credentials
 
 For detailed installation steps, see [INSTALL.md](INSTALL.md)
@@ -319,7 +319,7 @@ pmranger/
 - **Use Reverse Proxy**: Deploy nginx/Apache with SSL for HTTPS
 - **Restrict Network Access**: Limit to management network or VPN
 - **Regular Updates**: Keep Proxmox and system packages updated
-- **Firewall Rules**: Block port 8008 from public internet
+- **Firewall Rules**: Block port 8010 from public internet
 - **Monitor Logs**: Regular review of access and operation logs
 
 ### Default Security Settings
@@ -358,7 +358,7 @@ tail -n 50 /var/log/proxmox-ranger.log
 
 2. **Check firewall**
    ```bash
-   iptables -L -n | grep 8008
+   iptables -L -n | grep 8010
    ```
 
 3. **Verify IP whitelist**
@@ -367,7 +367,7 @@ tail -n 50 /var/log/proxmox-ranger.log
 
 4. **Test locally**
    ```bash
-   curl http://localhost:8008/login
+   curl http://localhost:8010/login
    ```
 
 ### Login Issues
@@ -458,13 +458,84 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ---
 
+## 🗑️ Uninstallation
+
+ProxMox Ranger can be safely uninstalled without affecting your existing storage configuration or mounted devices.
+
+### Using the Uninstall Script
+
+```bash
+cd /path/to/ProxMoxRanger
+bash uninstall.sh
+```
+
+The uninstall script provides an **interactive removal process** that allows you to choose what to remove.
+
+### What Gets Removed
+
+The uninstaller will automatically remove:
+
+- ✅ **ProxMox Ranger Application**
+  - Service: `/etc/systemd/system/proxmox-ranger.service`
+  - Installation directory: `/opt/proxmox-ranger/`
+  - Symlinks: `/usr/local/bin/pmranger`, `/usr/local/bin/pmranger-cli`
+
+**Optional Removals** (you will be prompted):
+- Samba usershare configuration in `/etc/samba/smb.conf`
+- Usershares directory (⚠️ WARNING: Deletes ALL shares)
+- Log files in `/var/log/`
+
+### What Does NOT Get Removed
+
+The uninstaller is designed to be **non-destructive** to your existing infrastructure:
+
+- ❌ **Mounted Devices** - All currently mounted devices remain mounted
+- ❌ **Active SMB Shares** - Existing Samba shares remain active and accessible
+- ❌ **ZFS Pools/Datasets** - Your ZFS configuration is completely untouched
+- ❌ **ACL Permissions** - File and directory permissions remain unchanged
+- ❌ **Device Mounts in `/media/`** - Mounted storage stays mounted
+- ❌ **Samba Users** - User accounts and passwords remain intact
+- ❌ **System Packages** - Python, Samba, and other dependencies are not removed
+
+### Important Notes
+
+⚠️ **Before Uninstalling:**
+- The application is stopped immediately when uninstalled
+- Mounted devices and shares remain accessible but can no longer be managed through the web UI
+- Use `pmranger-cli` commands before uninstalling if you need to clean up shares first
+
+### Manual Cleanup (If Needed)
+
+If you want to manually remove shares and unmount devices before uninstalling:
+
+```bash
+# View all current shares
+net usershare list
+
+# Delete a specific share
+net usershare delete SHARENAME
+
+# Unmount a device
+umount /media/DEVICE_NAME
+```
+
+### Reinstallation
+
+To reinstall ProxMox Ranger after uninstalling:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/peterjohannmedina/ProxMoxRanger/main/install.sh | bash
+```
+
+---
+
 ## 📊 Stats & Info
 
 - **Language**: Python, Bash, HTML/CSS
 - **Framework**: Flask 2.3+
 - **License**: MIT
 - **Platform**: Proxmox VE 7+
-- **Service Port**: 8008
+- **Service Port**: 8010 (default, configurable)
 
 ---
 

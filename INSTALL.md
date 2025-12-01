@@ -101,7 +101,7 @@ systemctl status proxmox-ranger.service
 
 The web interface should now be accessible at:
 ```
-http://YOUR_PROXMOX_IP:8008
+http://YOUR_PROXMOX_IP:8010
 ```
 
 ## Configuration
@@ -155,7 +155,7 @@ systemctl restart smbd
 
 ### Accessing the Web UI
 
-Navigate to `http://YOUR_PROXMOX_IP:8008` in your web browser.
+Navigate to `http://YOUR_PROXMOX_IP:8010` in your web browser (or the custom port you selected during installation).
 
 ### Managing Devices
 
@@ -194,12 +194,12 @@ pip3 list | grep -i flask
 
 1. Check firewall:
 ```bash
-iptables -L -n | grep 8008
+iptables -L -n | grep 8010
 ```
 
 2. Verify service is listening:
 ```bash
-netstat -tulpn | grep 8008
+netstat -tulpn | grep 8010
 ```
 
 3. Check IP whitelist in `/opt/proxmox-ranger/bin/webui`
@@ -245,7 +245,7 @@ systemctl daemon-reload
 
 ## Security Considerations
 
-- The web UI runs on port 8008 by default (non-HTTPS)
+- The web UI runs on port 8010 by default (non-HTTPS, configurable during installation)
 - IP whitelisting is enforced by default
 - Running as root provides full system access
 - Consider using a reverse proxy (nginx/apache) with SSL for production

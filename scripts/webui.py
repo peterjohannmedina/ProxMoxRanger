@@ -2333,5 +2333,5 @@ if __name__ == '__main__':
     # Ensure Samba is configured properly for username authentication
     logging.info("Starting ProxMox Ranger Web UI")
     ensure_samba_config()
-    logging.info("Starting Flask application on port 8008")
-    app.run(host='0.0.0.0', port=8008, debug=False)
+    logging.info("Starting Flask application on port 8010")
+    app.run(host='0.0.0.0', port=8010, debug=False)

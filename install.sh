@@ -61,10 +61,23 @@ check_root() {
 check_proxmox() {
     if [ ! -f /etc/pve/.version ]; then
         print_warning "This doesn't appear to be a Proxmox VE system"
-        read -p "Continue anyway? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
+
+        # Check if running in interactive mode
+        if [ ! -t 0 ]; then
+            print_warning "Non-interactive mode - skipping confirmation"
+            print_info "Continuing installation on non-Proxmox system..."
+        else
+            # Interactive mode with timeout
+            if read -t 20 -p "Continue anyway? (y/N): " -n 1 -r; then
+                echo
+                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                    exit 1
+                fi
+            else
+                echo
+                print_warning "No response received - aborting installation"
+                exit 1
+            fi
         fi
     else
         local pve_version=$(cat /etc/pve/.version)
@@ -79,22 +92,40 @@ prompt_port_selection() {
     echo "  Default port: $WEB_PORT"
     echo "  Note: Port 8008 is used by ProxMenux and other services"
     echo ""
-    read -p "Use default port $WEB_PORT? (Y/n): " -n 1 -r
-    echo
 
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
-        while true; do
-            read -p "Enter custom port (1024-65535): " CUSTOM_PORT
-            if [[ "$CUSTOM_PORT" =~ ^[0-9]+$ ]] && [ "$CUSTOM_PORT" -ge 1024 ] && [ "$CUSTOM_PORT" -le 65535 ]; then
-                WEB_PORT=$CUSTOM_PORT
-                print_success "Using custom port: $WEB_PORT"
-                break
-            else
-                print_error "Invalid port. Please enter a number between 1024 and 65535"
-            fi
-        done
-    else
+    # Check if running in interactive mode (stdin is a terminal)
+    if [ ! -t 0 ]; then
+        print_warning "Non-interactive mode detected (piped installation)"
         print_info "Using default port: $WEB_PORT"
+        echo ""
+        return
+    fi
+
+    # Interactive mode with 20-second countdown
+    print_info "You have 20 seconds to respond..."
+
+    # Read with timeout
+    if read -t 20 -p "Use default port $WEB_PORT? (Y/n): " -n 1 -r; then
+        echo
+
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            while true; do
+                read -p "Enter custom port (1024-65535): " CUSTOM_PORT
+                if [[ "$CUSTOM_PORT" =~ ^[0-9]+$ ]] && [ "$CUSTOM_PORT" -ge 1024 ] && [ "$CUSTOM_PORT" -le 65535 ]; then
+                    WEB_PORT=$CUSTOM_PORT
+                    print_success "Using custom port: $WEB_PORT"
+                    break
+                else
+                    print_error "Invalid port. Please enter a number between 1024 and 65535"
+                fi
+            done
+        else
+            print_info "Using default port: $WEB_PORT"
+        fi
+    else
+        # Timeout occurred - use default
+        echo
+        print_warning "No response received - using default port: $WEB_PORT"
     fi
     echo ""
 }
@@ -106,10 +137,23 @@ check_port() {
     if ss -tlnp 2>/dev/null | grep -q ":$WEB_PORT " || netstat -tlnp 2>/dev/null | grep -q ":$WEB_PORT "; then
         print_warning "Port $WEB_PORT is already in use"
         print_warning "Please free the port or change PORT in $BIN_DIR/webui after installation"
-        read -p "Continue anyway? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            exit 1
+
+        # Check if running in interactive mode
+        if [ ! -t 0 ]; then
+            print_warning "Non-interactive mode - continuing with port $WEB_PORT"
+            print_info "You may need to manually change the port in $BIN_DIR/webui"
+        else
+            # Interactive mode with timeout
+            if read -t 20 -p "Continue anyway? (y/N): " -n 1 -r; then
+                echo
+                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                    exit 1
+                fi
+            else
+                echo
+                print_warning "No response received - aborting installation"
+                exit 1
+            fi
         fi
     else
         print_success "Port $WEB_PORT is available"

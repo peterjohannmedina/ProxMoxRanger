@@ -29,8 +29,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Script directory
+# Script directory and repository setup
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="https://github.com/peterjohannmedina/ProxMoxRanger.git"
+TEMP_CLONE=false
 
 # Print functions
 print_info() {
@@ -47,6 +49,44 @@ print_warning() {
 
 print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Clone repository if needed (for curl | bash installations)
+clone_repo_if_needed() {
+    # Check if scripts directory exists
+    if [ ! -d "$SCRIPT_DIR/scripts" ]; then
+        print_info "Repository files not found - cloning from GitHub..."
+
+        # Install git if not present
+        if ! command -v git &> /dev/null; then
+            print_info "Installing git..."
+            apt update > /dev/null 2>&1
+            apt install -y git > /dev/null 2>&1
+        fi
+
+        # Create temporary directory
+        TEMP_DIR=$(mktemp -d)
+        TEMP_CLONE=true
+
+        print_info "Cloning ProxMox Ranger repository..."
+        if git clone --depth 1 "$REPO_URL" "$TEMP_DIR" > /dev/null 2>&1; then
+            SCRIPT_DIR="$TEMP_DIR"
+            print_success "Repository cloned successfully"
+        else
+            print_error "Failed to clone repository"
+            exit 1
+        fi
+    else
+        print_info "Running from cloned repository"
+    fi
+}
+
+# Cleanup temporary clone
+cleanup_temp_clone() {
+    if [ "$TEMP_CLONE" = true ] && [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR" ]; then
+        print_info "Cleaning up temporary files..."
+        rm -rf "$TEMP_DIR"
+    fi
 }
 
 # Check if running as root
@@ -412,7 +452,11 @@ main() {
     echo "=========================================================================="
     echo ""
 
+    # Set up cleanup trap for errors
+    trap cleanup_temp_clone EXIT
+
     check_root
+    clone_repo_if_needed
     check_proxmox
     prompt_port_selection
     check_port
@@ -430,6 +474,7 @@ main() {
     start_service
 
     print_completion
+    cleanup_temp_clone
 }
 
 # Run main function

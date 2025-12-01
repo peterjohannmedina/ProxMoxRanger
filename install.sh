@@ -69,8 +69,8 @@ clone_repo_if_needed() {
         TEMP_CLONE=true
 
         print_info "Cloning ProxMox Ranger repository..."
-        if git clone --depth 1 "$REPO_URL" "$TEMP_DIR" > /dev/null 2>&1; then
-            SCRIPT_DIR="$TEMP_DIR"
+        if git clone --depth 1 "$REPO_URL" "$TEMP_DIR/repo" > /dev/null 2>&1; then
+            SCRIPT_DIR="$TEMP_DIR/repo"
             print_success "Repository cloned successfully"
         else
             print_error "Failed to clone repository"

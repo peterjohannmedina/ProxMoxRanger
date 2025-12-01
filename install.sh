@@ -11,6 +11,17 @@
 
 set -e  # Exit on any error
 
+# Installation paths
+INSTALL_DIR="/opt/proxmox-ranger"
+BIN_DIR="$INSTALL_DIR/bin"
+LIB_DIR="$INSTALL_DIR/lib"
+ASSETS_DIR="$LIB_DIR/assets"
+VENV_DIR="$INSTALL_DIR/venv"
+
+# Service configuration
+SERVICE_NAME="proxmox-ranger.service"
+WEB_PORT=8008
+
 # Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -61,64 +72,113 @@ check_proxmox() {
     fi
 }
 
+# Check if port is available
+check_port() {
+    print_info "Checking if port $WEB_PORT is available..."
+
+    if ss -tlnp 2>/dev/null | grep -q ":$WEB_PORT " || netstat -tlnp 2>/dev/null | grep -q ":$WEB_PORT "; then
+        print_warning "Port $WEB_PORT is already in use"
+        print_warning "Please free the port or change PORT in $BIN_DIR/webui after installation"
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    else
+        print_success "Port $WEB_PORT is available"
+    fi
+}
+
 # Install system dependencies
 install_dependencies() {
     print_info "Installing system dependencies..."
 
     apt update
-    apt install -y python3 python3-pip samba samba-common-bin
+    apt install -y python3 python3-pip python3-venv samba samba-common-bin
 
     print_success "System dependencies installed"
 }
 
-# Install Python dependencies
-install_python_deps() {
+# Create directory structure
+create_directories() {
+    print_info "Creating directory structure..."
+
+    mkdir -p "$BIN_DIR"
+    mkdir -p "$LIB_DIR"
+    mkdir -p "$ASSETS_DIR"
+
+    print_success "Directory structure created"
+}
+
+# Create virtual environment and install Python dependencies
+setup_venv() {
+    print_info "Creating Python virtual environment..."
+
+    python3 -m venv "$VENV_DIR"
+
+    print_success "Virtual environment created"
+
     print_info "Installing Python dependencies..."
 
     if [ -f "$SCRIPT_DIR/requirements.txt" ]; then
-        pip3 install -r "$SCRIPT_DIR/requirements.txt"
+        "$VENV_DIR/bin/pip" install -r "$SCRIPT_DIR/requirements.txt"
     else
-        pip3 install Flask>=2.3.0
+        "$VENV_DIR/bin/pip" install Flask>=2.3.0
     fi
 
-    print_success "Python dependencies installed"
+    print_success "Python dependencies installed in venv"
 }
 
-# Copy scripts to system locations
+# Install scripts
 install_scripts() {
     print_info "Installing scripts..."
 
-    # Create directory if needed
-    mkdir -p /usr/local/bin/pmranger
-
-    # Copy webui.py
+    # Copy webui.py and rename without extension
     if [ -f "$SCRIPT_DIR/scripts/webui.py" ]; then
-        cp "$SCRIPT_DIR/scripts/webui.py" /usr/local/bin/webui.py
-        chmod +x /usr/local/bin/webui.py
-        print_success "Installed webui.py"
+        cp "$SCRIPT_DIR/scripts/webui.py" "$BIN_DIR/webui"
+        chmod +x "$BIN_DIR/webui"
+        print_success "Installed webui"
     else
         print_error "webui.py not found in $SCRIPT_DIR/scripts/"
         exit 1
     fi
 
-    # Copy hotswap-manager.sh
+    # Copy hotswap-manager.sh and rename without extension
     if [ -f "$SCRIPT_DIR/scripts/hotswap-manager.sh" ]; then
-        cp "$SCRIPT_DIR/scripts/hotswap-manager.sh" /usr/local/bin/hotswap-manager.sh
-        chmod +x /usr/local/bin/hotswap-manager.sh
-        print_success "Installed hotswap-manager.sh"
+        cp "$SCRIPT_DIR/scripts/hotswap-manager.sh" "$BIN_DIR/hotswap-manager"
+        chmod +x "$BIN_DIR/hotswap-manager"
+        print_success "Installed hotswap-manager"
     else
         print_error "hotswap-manager.sh not found in $SCRIPT_DIR/scripts/"
         exit 1
     fi
 
-    # Copy assets folder (RangerMark.png logo)
+    # Copy assets folder
     if [ -d "$SCRIPT_DIR/assets" ]; then
-        mkdir -p /usr/local/bin/pmranger/assets
-        cp -r "$SCRIPT_DIR/assets/"* /usr/local/bin/pmranger/assets/
-        print_success "Installed assets folder"
+        cp -r "$SCRIPT_DIR/assets/"* "$ASSETS_DIR/"
+        print_success "Installed assets"
     else
         print_warning "Assets folder not found in $SCRIPT_DIR/assets/"
     fi
+}
+
+# Create symlinks for convenience
+create_symlinks() {
+    print_info "Creating convenience symlinks..."
+
+    # Create symlink for web UI
+    if [ -L /usr/local/bin/pmranger ]; then
+        rm /usr/local/bin/pmranger
+    fi
+    ln -s "$BIN_DIR/webui" /usr/local/bin/pmranger
+
+    # Create symlink for CLI manager
+    if [ -L /usr/local/bin/pmranger-cli ]; then
+        rm /usr/local/bin/pmranger-cli
+    fi
+    ln -s "$BIN_DIR/hotswap-manager" /usr/local/bin/pmranger-cli
+
+    print_success "Symlinks created: pmranger, pmranger-cli"
 }
 
 # Configure Samba
@@ -167,16 +227,16 @@ EOF
 create_service() {
     print_info "Creating systemd service..."
 
-    cat > /etc/systemd/system/hotswap-webui.service << 'EOF'
+    cat > /etc/systemd/system/$SERVICE_NAME << EOF
 [Unit]
-Description=ProxMox Ranger Hot-Swap Web UI
+Description=ProxMox Ranger - Hot-Swap Storage Manager
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/usr/local/bin
-ExecStart=/usr/bin/python3 /usr/local/bin/webui.py
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$VENV_DIR/bin/python3 $BIN_DIR/webui
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -194,17 +254,16 @@ start_service() {
     print_info "Enabling and starting service..."
 
     systemctl daemon-reload
-    systemctl enable hotswap-webui.service
-    systemctl start hotswap-webui.service
+    systemctl enable --now $SERVICE_NAME
 
     # Wait a moment for service to start
     sleep 2
 
     # Check if service is running
-    if systemctl is-active --quiet hotswap-webui.service; then
+    if systemctl is-active --quiet $SERVICE_NAME; then
         print_success "Service started successfully"
     else
-        print_error "Service failed to start. Check logs with: journalctl -u hotswap-webui.service -n 50"
+        print_error "Service failed to start. Check logs with: journalctl -u $SERVICE_NAME -n 50"
         exit 1
     fi
 }
@@ -232,19 +291,25 @@ print_completion() {
     echo "=========================================================================="
     echo ""
     echo "Access the web interface at:"
-    echo -e "  ${GREEN}http://$server_ip:8007${NC}"
+    echo -e "  ${GREEN}http://$server_ip:$WEB_PORT${NC}"
+    echo ""
+    echo "Installation directory: $INSTALL_DIR"
     echo ""
     echo "Service management:"
-    echo "  Status:  systemctl status hotswap-webui.service"
-    echo "  Stop:    systemctl stop hotswap-webui.service"
-    echo "  Start:   systemctl start hotswap-webui.service"
-    echo "  Restart: systemctl restart hotswap-webui.service"
+    echo "  Status:  systemctl status $SERVICE_NAME"
+    echo "  Stop:    systemctl stop $SERVICE_NAME"
+    echo "  Start:   systemctl start $SERVICE_NAME"
+    echo "  Restart: systemctl restart $SERVICE_NAME"
     echo ""
     echo "Logs:"
-    echo "  Service: journalctl -u hotswap-webui.service -f"
-    echo "  App:     tail -f /var/log/hotswap-webui.log"
+    echo "  Service: journalctl -u $SERVICE_NAME -f"
+    echo "  App:     tail -f /var/log/proxmox-ranger.log"
     echo ""
-    echo "Configuration file: /usr/local/bin/webui.py"
+    echo "Command shortcuts:"
+    echo "  Web UI:  pmranger"
+    echo "  CLI:     pmranger-cli"
+    echo ""
+    echo "Configuration: $BIN_DIR/webui"
     echo ""
     print_warning "Default installation uses HTTP (not HTTPS)"
     print_warning "IP whitelisting is enabled - see INSTALL.md for configuration"
@@ -264,13 +329,16 @@ main() {
 
     check_root
     check_proxmox
+    check_port
 
     print_info "Starting installation..."
     echo ""
 
     install_dependencies
-    install_python_deps
+    create_directories
+    setup_venv
     install_scripts
+    create_symlinks
     configure_samba
     create_service
     start_service

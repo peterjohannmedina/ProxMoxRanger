@@ -26,64 +26,82 @@ Or for manual installation, follow the steps below.
 
 ```bash
 apt update
-apt install -y python3-pip samba
-pip3 install -r requirements.txt
+apt install -y python3 python3-pip python3-venv samba samba-common-bin
 ```
 
-### Step 2: Copy Scripts
+### Step 2: Create Directory Structure and Virtual Environment
 
 ```bash
-# Create installation directory
-mkdir -p /usr/local/bin/pmranger
+# Create installation directory structure
+mkdir -p /opt/proxmox-ranger/bin
+mkdir -p /opt/proxmox-ranger/lib/assets
 
-# Copy webui script
-cp scripts/webui.py /usr/local/bin/webui.py
-chmod +x /usr/local/bin/webui.py
+# Create Python virtual environment
+python3 -m venv /opt/proxmox-ranger/venv
 
-# Copy hotswap manager script
-cp scripts/hotswap-manager.sh /usr/local/bin/hotswap-manager.sh
-chmod +x /usr/local/bin/hotswap-manager.sh
+# Install Python dependencies in venv
+/opt/proxmox-ranger/venv/bin/pip install -r requirements.txt
 ```
 
-### Step 3: Create Systemd Service
+### Step 3: Copy Scripts and Assets
 
-Create the service file at `/etc/systemd/system/hotswap-webui.service`:
+```bash
+# Copy webui script (without extension)
+cp scripts/webui.py /opt/proxmox-ranger/bin/webui
+chmod +x /opt/proxmox-ranger/bin/webui
+
+# Copy hotswap manager script (without extension)
+cp scripts/hotswap-manager.sh /opt/proxmox-ranger/bin/hotswap-manager
+chmod +x /opt/proxmox-ranger/bin/hotswap-manager
+
+# Copy assets
+cp -r assets/* /opt/proxmox-ranger/lib/assets/
+
+# Create convenience symlinks
+ln -s /opt/proxmox-ranger/bin/webui /usr/local/bin/pmranger
+ln -s /opt/proxmox-ranger/bin/hotswap-manager /usr/local/bin/pmranger-cli
+```
+
+### Step 4: Create Systemd Service
+
+Create the service file at `/etc/systemd/system/proxmox-ranger.service`:
 
 ```ini
 [Unit]
-Description=ProxMox Ranger Hot-Swap Web UI
+Description=ProxMox Ranger - Hot-Swap Storage Manager
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/usr/local/bin
-ExecStart=/usr/bin/python3 /usr/local/bin/webui.py
+WorkingDirectory=/opt/proxmox-ranger
+ExecStart=/opt/proxmox-ranger/venv/bin/python3 /opt/proxmox-ranger/bin/webui
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-### Step 4: Enable and Start Service
+### Step 5: Enable and Start Service
 
 ```bash
 systemctl daemon-reload
-systemctl enable hotswap-webui.service
-systemctl start hotswap-webui.service
+systemctl enable --now proxmox-ranger.service
 ```
 
-### Step 5: Verify Installation
+### Step 6: Verify Installation
 
 Check service status:
 ```bash
-systemctl status hotswap-webui.service
+systemctl status proxmox-ranger.service
 ```
 
 The web interface should now be accessible at:
 ```
-http://YOUR_PROXMOX_IP:8007
+http://YOUR_PROXMOX_IP:8008
 ```
 
 ## Configuration
@@ -94,7 +112,7 @@ By default, the web UI is accessible from:
 - Localhost (127.0.0.1, ::1)
 - Private network ranges (192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12)
 
-To modify allowed IPs, edit `/usr/local/bin/webui.py` and update the `ALLOWED_IPS` list around line 19:
+To modify allowed IPs, edit `/opt/proxmox-ranger/bin/webui` and update the `ALLOWED_IPS` list around line 19:
 
 ```python
 ALLOWED_IPS = [
@@ -105,7 +123,7 @@ ALLOWED_IPS = [
 
 After making changes, restart the service:
 ```bash
-systemctl restart hotswap-webui.service
+systemctl restart proxmox-ranger.service
 ```
 
 ### Samba Configuration
@@ -137,7 +155,7 @@ systemctl restart smbd
 
 ### Accessing the Web UI
 
-Navigate to `http://YOUR_PROXMOX_IP:8007` in your web browser.
+Navigate to `http://YOUR_PROXMOX_IP:8008` in your web browser.
 
 ### Managing Devices
 
@@ -150,12 +168,12 @@ Navigate to `http://YOUR_PROXMOX_IP:8007` in your web browser.
 
 View service logs:
 ```bash
-journalctl -u hotswap-webui.service -f
+journalctl -u proxmox-ranger.service -f
 ```
 
 Application logs:
 ```bash
-tail -f /var/log/hotswap-webui.log
+tail -f /var/log/proxmox-ranger.log
 ```
 
 ## Troubleshooting
@@ -164,7 +182,7 @@ tail -f /var/log/hotswap-webui.log
 
 Check logs:
 ```bash
-journalctl -u hotswap-webui.service -n 50
+journalctl -u proxmox-ranger.service -n 50
 ```
 
 Verify Python dependencies:
@@ -176,40 +194,50 @@ pip3 list | grep -i flask
 
 1. Check firewall:
 ```bash
-iptables -L -n | grep 8007
+iptables -L -n | grep 8008
 ```
 
 2. Verify service is listening:
 ```bash
-netstat -tulpn | grep 8007
+netstat -tulpn | grep 8008
 ```
 
-3. Check IP whitelist in webui.py
+3. Check IP whitelist in `/opt/proxmox-ranger/bin/webui`
 
 ### Mount/Unmount Failures
 
-Check hotswap-manager.sh permissions:
+Check hotswap-manager permissions:
 ```bash
-ls -l /usr/local/bin/hotswap-manager.sh
+ls -l /opt/proxmox-ranger/bin/hotswap-manager
 ```
 
 View detailed error logs:
 ```bash
-tail -f /var/log/hotswap-webui.log
+tail -f /var/log/proxmox-ranger.log
 ```
 
 ## Uninstallation
 
+To cleanly uninstall ProxMox Ranger, use the uninstall script:
+
+```bash
+bash uninstall.sh
+```
+
+Or manually:
+
 ```bash
 # Stop and disable service
-systemctl stop hotswap-webui.service
-systemctl disable hotswap-webui.service
+systemctl stop proxmox-ranger.service
+systemctl disable proxmox-ranger.service
 
 # Remove files
-rm /etc/systemd/system/hotswap-webui.service
-rm /usr/local/bin/webui.py
-rm /usr/local/bin/hotswap-manager.sh
-rm -rf /usr/local/bin/pmranger
+rm /etc/systemd/system/proxmox-ranger.service
+rm -rf /opt/proxmox-ranger
+
+# Remove symlinks
+rm /usr/local/bin/pmranger
+rm /usr/local/bin/pmranger-cli
 
 # Reload systemd
 systemctl daemon-reload
@@ -217,7 +245,7 @@ systemctl daemon-reload
 
 ## Security Considerations
 
-- The web UI runs on port 8007 by default (non-HTTPS)
+- The web UI runs on port 8008 by default (non-HTTPS)
 - IP whitelisting is enforced by default
 - Running as root provides full system access
 - Consider using a reverse proxy (nginx/apache) with SSL for production

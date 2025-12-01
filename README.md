@@ -138,7 +138,7 @@ The installation script automatically:
 
 After installation, access ProxMox Ranger at:
 ```
-http://YOUR_PROXMOX_IP:8007
+http://YOUR_PROXMOX_IP:8008
 ```
 
 **Default Login:** Use your Proxmox host credentials (e.g., root and your root password)
@@ -156,7 +156,7 @@ http://YOUR_PROXMOX_IP:8007
 
 ### Network Requirements
 
-- **Port 8007**: Must be accessible from your management network
+- **Port 8008**: Must be accessible from your management network
 - **Private Network**: Recommended for security (IP whitelist enforced)
 
 ---
@@ -178,11 +178,11 @@ http://YOUR_PROXMOX_IP:8007
 
 3. **Verify installation**
    ```bash
-   systemctl status hotswap-webui.service
+   systemctl status proxmox-ranger.service
    ```
 
 4. **Access the web UI**
-   - Open browser to `http://YOUR_PROXMOX_IP:8007`
+   - Open browser to `http://YOUR_PROXMOX_IP:8008`
    - Login with Proxmox credentials
 
 For detailed installation steps, see [INSTALL.md](INSTALL.md)
@@ -231,7 +231,7 @@ For detailed installation steps, see [INSTALL.md](INSTALL.md)
 
 ### IP Whitelist
 
-Edit `/usr/local/bin/webui.py` to customize allowed IP ranges:
+Edit `/opt/proxmox-ranger/bin/webui` to customize allowed IP ranges:
 
 ```python
 ALLOWED_IPS = [
@@ -247,29 +247,29 @@ ALLOWED_IPS = [
 
 ```bash
 # Check status
-systemctl status hotswap-webui.service
+systemctl status proxmox-ranger.service
 
 # Start service
-systemctl start hotswap-webui.service
+systemctl start proxmox-ranger.service
 
 # Stop service
-systemctl stop hotswap-webui.service
+systemctl stop proxmox-ranger.service
 
 # Restart service
-systemctl restart hotswap-webui.service
+systemctl restart proxmox-ranger.service
 
 # Enable on boot
-systemctl enable hotswap-webui.service
+systemctl enable proxmox-ranger.service
 
 # View real-time logs
-journalctl -u hotswap-webui.service -f
+journalctl -u proxmox-ranger.service -f
 ```
 
 ### Application Logs
 
 ```bash
 # Web UI logs
-tail -f /var/log/hotswap-webui.log
+tail -f /var/log/proxmox-ranger.log
 
 # Manager script logs
 tail -f /var/log/hotswap-manager.log
@@ -319,7 +319,7 @@ pmranger/
 - **Use Reverse Proxy**: Deploy nginx/Apache with SSL for HTTPS
 - **Restrict Network Access**: Limit to management network or VPN
 - **Regular Updates**: Keep Proxmox and system packages updated
-- **Firewall Rules**: Block port 8007 from public internet
+- **Firewall Rules**: Block port 8008 from public internet
 - **Monitor Logs**: Regular review of access and operation logs
 
 ### Default Security Settings
@@ -340,34 +340,34 @@ pmranger/
 
 ```bash
 # Check service status
-systemctl status hotswap-webui.service
+systemctl status proxmox-ranger.service
 
 # View detailed logs
-journalctl -u hotswap-webui.service -n 100 --no-pager
+journalctl -u proxmox-ranger.service -n 100 --no-pager
 
 # Check application logs
-tail -n 50 /var/log/hotswap-webui.log
+tail -n 50 /var/log/proxmox-ranger.log
 ```
 
 ### Can't Access Web UI
 
 1. **Verify service is running**
    ```bash
-   systemctl is-active hotswap-webui.service
+   systemctl is-active proxmox-ranger.service
    ```
 
 2. **Check firewall**
    ```bash
-   iptables -L -n | grep 8007
+   iptables -L -n | grep 8008
    ```
 
 3. **Verify IP whitelist**
    - Ensure your IP is in the ALLOWED_IPS list
-   - Edit `/usr/local/bin/webui.py` if needed
+   - Edit `/opt/proxmox-ranger/bin/webui` if needed
 
 4. **Test locally**
    ```bash
-   curl http://localhost:8007/login
+   curl http://localhost:8008/login
    ```
 
 ### Login Issues
@@ -464,7 +464,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 - **Framework**: Flask 2.3+
 - **License**: MIT
 - **Platform**: Proxmox VE 7+
-- **Service Port**: 8007
+- **Service Port**: 8008
 
 ---
 

@@ -7,10 +7,17 @@ from flask import Flask, render_template_string, request, redirect, url_for, abo
 from functools import wraps
 import ipaddress
 import os
+import sys
 from datetime import timedelta
 
+# Calculate paths relative to script location
+# This script is installed to /opt/proxmox-ranger/bin/webui
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Assets are in ../lib/assets/ relative to bin/webui
+ASSETS_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), 'lib', 'assets')
+
 # Configure logging
-logging.basicConfig(filename='/var/log/hotswap-webui.log', level=logging.INFO,
+logging.basicConfig(filename='/var/log/proxmox-ranger.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = Flask(__name__)
@@ -1970,12 +1977,14 @@ def remove_user():
 @app.route('/static/logo')
 def serve_logo():
     """Serve the RangerMark logo"""
-    # Logo should be installed to /usr/local/bin/pmranger/assets/RangerMark.png
-    logo_path = '/usr/local/bin/pmranger/assets/RangerMark.png'
-    if os.path.exists(logo_path):
-        return send_file(logo_path, mimetype='image/png')
-    # Fallback: return 404
-    abort(404)
+    # Logo is in the assets directory
+    logo_path = os.path.join(ASSETS_DIR, 'RangerMark.png')
+
+    if not os.path.exists(logo_path):
+        logging.error(f"Logo not found at {logo_path}")
+        abort(404)
+
+    return send_file(logo_path, mimetype='image/png')
 
 @login_required
 @app.route('/logs')
@@ -1987,9 +1996,9 @@ def logs():
             manager_logs = f.read()
     except FileNotFoundError:
         manager_logs = "Log file not found"
-    
+
     try:
-        with open('/var/log/hotswap-webui.log', 'r') as f:
+        with open('/var/log/proxmox-ranger.log', 'r') as f:
             webui_logs = f.read()
     except FileNotFoundError:
         webui_logs = "Log file not found"
@@ -2322,7 +2331,7 @@ def logs():
 
 if __name__ == '__main__':
     # Ensure Samba is configured properly for username authentication
-    logging.info("Starting Hot-Swap Web UI")
+    logging.info("Starting ProxMox Ranger Web UI")
     ensure_samba_config()
-    logging.info("Starting Flask application on port 8007")
-    app.run(host='0.0.0.0', port=8007, debug=False)
+    logging.info("Starting Flask application on port 8008")
+    app.run(host='0.0.0.0', port=8008, debug=False)

@@ -12,7 +12,7 @@
 <p align="center">
   <strong>Motivation</strong>
 </p>
-ProxMox Ranger was built so anyone running Proxmox on cluster/compute nodes can easily expose and access node-local block storage via SMB without spinning up a VM. It also makes it simple for nodes to access SMB shares hosted on other nodes — great for small clusters and shared local storage workflows.
+ProxMox Ranger was built so that anyone running Proxmox on cluster/compute nodes can easily expose and access node-local block storage via SMB without spinning up a VM. It also makes it simple for nodes to access SMB shares hosted on other nodes — great for small clusters and shared local storage workflows.
 
 <p align="center">
   <img src="assets/ProxMoxRanger1.png" alt="ProxMox Ranger UI screenshot" width="820"/>
@@ -83,19 +83,19 @@ Managing hot-swap drives in a home lab or production Proxmox environment shouldn
 
 ### Modern User Interface
 
-- **🎨 Professional Dark Theme**
+- ** Professional Dark Theme**
   - Inspired by modern dashboard interfaces (ProxMenux Monitor, Aria)
   - Clean, minimal design with consistent spacing
   - High contrast for easy readability
   - Custom logo integration
 
-- **📱 Fully Responsive**
+- ** Fully Responsive**
   - Works seamlessly on desktop, tablet, and mobile
   - Touch-optimized for mobile devices
   - Adaptive layouts for all screen sizes
   - Portrait and landscape orientation support
 
-- **⚡ Performance**
+- ** Performance**
   - Fast, lightweight Flask backend
   - Minimal resource usage
   - Real-time updates without page reloads
@@ -189,7 +189,7 @@ For detailed installation steps, see [INSTALL.md](INSTALL.md)
 
 ---
 
-## 💡 Usage
+##  Usage
 
 ### Managing Storage Devices
 
@@ -397,33 +397,16 @@ See [INSTALL.md](INSTALL.md) for comprehensive troubleshooting.
 
 ---
 
-## 🗺️ Roadmap
-
-### Planned Features
-
-- [ ] **Mobile App Support**: Native iOS/Android companion app
-- [ ] **HTTPS/SSL**: Built-in SSL certificate generation
-- [ ] **Email Notifications**: Alerts for device events
-- [ ] **SMART Monitoring**: Drive health tracking
-- [ ] **Automatic Backups**: Scheduled backup to mounted drives
-- [ ] **Multi-node Support**: Manage multiple Proxmox nodes
-- [ ] **REST API**: Automation and integration endpoints
-- [ ] **Webhook Support**: Trigger external actions on events
-- [ ] **Role-Based Access**: Granular permission levels
-- [ ] **Audit Logging**: Detailed activity tracking
-
----
-
-## 🤝 Contributing
+##  Contributing
 
 Contributions are welcome and appreciated! Here's how you can help:
 
 ### Ways to Contribute
 
 - **Report bugs** via GitHub Issues
-- 💡 **Suggest features** in GitHub Discussions
-- 📖 **Improve documentation**
-- 🔧 **Submit pull requests**
+-  **Suggest features** in GitHub Discussions
+-  **Improve documentation**
+-  **Submit pull requests**
 
 ### Development Process
 
@@ -457,7 +440,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ---
 
-## 🙏 Acknowledgments
+##  Acknowledgments
 
 - **Proxmox Community**: For the amazing virtualization platform
 - **Flask Framework**: For the lightweight Python web framework
@@ -485,6 +468,4 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ---
 
-<p align="center">
-  Made with ❤️ for the Proxmox community
-</p>
+

@@ -24,6 +24,22 @@ ProxMox Ranger was built so that anyone running Proxmox on cluster/compute nodes
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License"/>
 </p>
 
+## Prerequisites
+
+**Important:** ProxMox Ranger (PMR) is a dashboard and management interface for SMB and ZFS shares. It does not automatically configure or create shares for you. You must set up your SMB shares and ZFS pools/datasets manually within Proxmox VE or Debian before using PMR.
+
+### SMB Share Setup
+- Configure Samba shares in `/etc/samba/smb.conf`
+- Create user accounts with `smbpasswd`
+- Set appropriate permissions and access controls
+
+### ZFS Share Setup
+- Create ZFS pools and datasets using `zpool` and `zfs` commands
+- Configure share properties (`sharenfs`, `sharesmb`)
+- Set permissions, quotas, and other dataset properties
+
+PMR will then display and help manage these existing shares through its web interface, providing a convenient dashboard for monitoring and basic operations.
+
 ---
 
 ## Overview

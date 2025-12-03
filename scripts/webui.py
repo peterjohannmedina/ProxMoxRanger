@@ -7,17 +7,10 @@ from flask import Flask, render_template_string, request, redirect, url_for, abo
 from functools import wraps
 import ipaddress
 import os
-import sys
 from datetime import timedelta
 
-# Calculate paths relative to script location
-# This script is installed to /opt/proxmox-ranger/bin/webui
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# Assets are in ../lib/assets/ relative to bin/webui
-ASSETS_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), 'lib', 'assets')
-
 # Configure logging
-logging.basicConfig(filename='/var/log/proxmox-ranger.log', level=logging.INFO,
+logging.basicConfig(filename='/var/log/hotswap-webui.log', level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = Flask(__name__)
@@ -675,6 +668,163 @@ HTML_TEMPLATE = """
             }
         }
 
+        /* ===== MOBILE PORTRAIT MODE ENHANCEMENTS ===== */
+        @media (max-width: 480px) and (orientation: portrait) {
+            body {
+                font-size: 14px;
+            }
+
+            .main-content {
+                padding: 12px;
+            }
+
+            .page-title {
+                font-size: 18px;
+            }
+
+            .page-title-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .server-info {
+                font-size: 12px;
+            }
+
+            .card {
+                padding: 16px;
+                margin-bottom: 16px;
+            }
+
+            .card-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+                margin-bottom: 16px;
+            }
+
+            .card-title {
+                font-size: 15px;
+            }
+
+            .card-actions {
+                width: 100%;
+                flex-wrap: wrap;
+            }
+
+            .card-actions .btn {
+                flex: 1;
+                min-width: 120px;
+            }
+
+            /* Table responsiveness */
+            .table-container {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            table {
+                font-size: 12px;
+                min-width: 600px;
+            }
+
+            th, td {
+                padding: 10px 12px;
+            }
+
+            th {
+                font-size: 11px;
+            }
+
+            /* Button adjustments */
+            .btn {
+                padding: 10px 14px;
+                font-size: 13px;
+            }
+
+            .btn-sm {
+                padding: 8px 12px;
+                font-size: 12px;
+            }
+
+            /* Form inputs */
+            input[type="text"],
+            input[type="password"],
+            select {
+                font-size: 16px; /* Prevents iOS zoom */
+                padding: 12px;
+            }
+
+            /* Stat cards */
+            .stat-value {
+                font-size: 22px;
+            }
+
+            .stat-label {
+                font-size: 11px;
+            }
+
+            /* Modal adjustments */
+            .modal-content {
+                width: 95%;
+                padding: 20px;
+                max-height: 90vh;
+                overflow-y: auto;
+            }
+
+            .modal-title {
+                font-size: 16px;
+            }
+
+            .modal-footer {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .modal-footer .btn {
+                width: 100%;
+            }
+
+            /* Badge adjustments */
+            .badge {
+                font-size: 10px;
+                padding: 3px 8px;
+            }
+
+            /* Code block scrolling */
+            .code-block {
+                font-size: 11px;
+                padding: 10px;
+                overflow-x: auto;
+                white-space: nowrap;
+            }
+        }
+
+        /* ===== SMALL MOBILE DEVICES ===== */
+        @media (max-width: 375px) {
+            .main-content {
+                padding: 8px;
+            }
+
+            .page-title {
+                font-size: 16px;
+            }
+
+            .card {
+                padding: 12px;
+            }
+
+            table {
+                font-size: 11px;
+                min-width: 550px;
+            }
+
+            th, td {
+                padding: 8px 10px;
+            }
+        }
+
         /* ===== UTILITIES ===== */
         .text-sm { font-size: 13px; }
         .text-xs { font-size: 12px; }
@@ -686,6 +836,121 @@ HTML_TEMPLATE = """
         .gap-3 { gap: 12px; }
         .mb-4 { margin-bottom: 16px; }
         .mt-4 { margin-top: 16px; }
+
+        /* ===== LOADING INDICATORS ===== */
+        /* Loading spinner */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #3b82f6;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Button loading state */
+        .btn-loading {
+            position: relative;
+            color: transparent !important;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .btn-loading::after {
+            content: "";
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            top: 50%;
+            left: 50%;
+            margin-left: -8px;
+            margin-top: -8px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 0.8s linear infinite;
+        }
+
+        /* Disable form during submission */
+        .form-submitting {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        /* Status overlay for devices table */
+        .device-row-loading {
+            background-color: rgba(59, 130, 246, 0.1);
+            position: relative;
+        }
+
+        .device-row-loading::before {
+            content: attr(data-status);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(59, 130, 246, 0.9);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            z-index: 10;
+        }
+
+        /* Toast notification */
+        .toast-notification {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px 20px;
+            box-shadow: var(--shadow-lg);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 300px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .toast-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .toast-info {
+            border-left: 4px solid var(--accent-primary);
+        }
+
+        .toast-success {
+            border-left: 4px solid var(--accent-success);
+        }
+
+        .toast-error {
+            border-left: 4px solid var(--accent-danger);
+        }
 
         /* ===== MODAL ===== */
         .modal-overlay {
@@ -861,10 +1126,10 @@ HTML_TEMPLATE = """
                                 <td>
                                     <div class="flex gap-2">
                                         {% if not dev.mountpoint %}
-                                            <form method="post" style="display:inline;">
+                                            <form method="post" class="mount-form" data-device="{{ dev.name }}" style="display:inline;">
                                                 <input type="hidden" name="action" value="mount">
                                                 <input type="hidden" name="device" value="{{ dev.name }}">
-                                                <button type="submit" class="btn btn-success btn-sm">Mount</button>
+                                                <button type="submit" class="btn btn-success btn-sm mount-btn">Mount</button>
                                             </form>
                                             <form method="post" style="display:inline;">
                                                 <input type="hidden" name="action" value="format">
@@ -878,10 +1143,10 @@ HTML_TEMPLATE = """
                                                 <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('WARNING: This will destroy all data on {{ dev.name }}. Continue?')">Format</button>
                                             </form>
                                         {% else %}
-                                            <form method="post" style="display:inline;">
+                                            <form method="post" class="unmount-form" data-device="{{ dev.name }}" style="display:inline;">
                                                 <input type="hidden" name="action" value="unmount">
                                                 <input type="hidden" name="device" value="{{ dev.name }}">
-                                                <button type="submit" class="btn btn-danger btn-sm">Unmount</button>
+                                                <button type="submit" class="btn btn-danger btn-sm unmount-btn">Unmount</button>
                                             </form>
                                         {% endif %}
                                     </div>
@@ -1472,41 +1737,89 @@ def remove_smb_user(username):
         return False, f"Error removing SMB access: {str(e)}"
 
 def get_devices():
-    success, output = run_cmd("lsblk -J -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT")
+    """
+    Get list of mountable block devices and their partitions.
+    Shows partitions that have filesystems, and parent disks only if they have no partitions.
+    """
+    success, output = run_cmd("lsblk -J -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,TYPE")
     if success:
         data = json.loads(output)
         devices = []
-        for dev in data.get('blockdevices', []):
-            if dev['name'].startswith(('sd', 'nvme', 'vd')):
+
+        def process_device(dev, parent_path=''):
+            """Recursively process device and its children (partitions)"""
+            # Build device path
+            if parent_path:
+                device_name = f"{parent_path}{dev['name']}"
+            else:
                 device_name = f"/dev/{dev['name']}"
-                mountpoint = dev.get('mountpoint')
 
-                # Get storage usage for mounted devices
-                used = '-'
-                available = '-'
-                usage_percent = '-'
+            # Get device properties
+            mountpoint = dev.get('mountpoint')
+            fstype = dev.get('fstype')
+            dev_type = dev.get('type', 'disk')
+            has_children = 'children' in dev and len(dev['children']) > 0
 
-                if mountpoint:
-                    # Use df to get storage info
-                    success_df, df_output = run_cmd(f"df -h {mountpoint} | tail -1")
-                    if success_df:
-                        parts = df_output.split()
-                        if len(parts) >= 5:
-                            # Format: Filesystem Size Used Avail Use% Mounted
-                            used = parts[2]
-                            available = parts[3]
-                            usage_percent = parts[4]
+            # Get storage usage for mounted devices
+            used = '-'
+            available = '-'
+            usage_percent = '-'
 
+            if mountpoint:
+                # Use df to get storage info
+                success_df, df_output = run_cmd(f"df -h {mountpoint} | tail -1")
+                if success_df:
+                    parts = df_output.split()
+                    if len(parts) >= 5:
+                        # Format: Filesystem Size Used Avail Use% Mounted
+                        used = parts[2]
+                        available = parts[3]
+                        usage_percent = parts[4]
+
+            # Decide if this device should be shown:
+            # 1. If it's a partition with a filesystem, always show it
+            # 2. If it's a partition that's mounted (even without fstype, e.g. LVM), show it
+            # 3. If it's a disk with no partitions and has a filesystem, show it
+            # 4. Skip disks that have partitions (can't mount them directly)
+            # 5. Skip swap, lvm volumes, and other system types unless mounted
+
+            should_show = False
+
+            if dev_type == 'part':
+                # Show partitions if they have a filesystem OR are mounted
+                if fstype and fstype not in ('LVM2_member', 'zfs_member'):
+                    should_show = True
+                elif mountpoint:
+                    should_show = True
+            elif dev_type == 'disk':
+                # Show disks only if they have NO partitions AND have a filesystem
+                if not has_children and fstype:
+                    should_show = True
+
+            if should_show:
                 devices.append({
                     'name': device_name,
                     'size': dev.get('size', '-'),
-                    'fstype': dev.get('fstype'),
+                    'fstype': fstype,
                     'label': dev.get('label'),
                     'mountpoint': mountpoint,
                     'used': used,
                     'available': available,
-                    'usage_percent': usage_percent
+                    'usage_percent': usage_percent,
+                    'type': dev_type
                 })
+
+            # Recursively process children (partitions)
+            if has_children:
+                for child in dev['children']:
+                    process_device(child, parent_path)
+
+        # Process all block devices
+        for dev in data.get('blockdevices', []):
+            # Only process hotswap-type devices
+            if dev['name'].startswith(('sd', 'nvme', 'vd')):
+                process_device(dev)
+
         return devices
     return []
 
@@ -1541,29 +1854,50 @@ def get_all_mounts():
     return all_mounts
 
 def get_shares():
-    # Get list of share names
+    """Get list of SMB usershares, skipping any corrupted entries"""
     success, output = run_cmd("net usershare list")
     shares = []
+    corrupted_shares = []
+
     if success and output:
         share_names = output.strip().split('\n')
         for share_name in share_names:
-            if share_name:
-                # Get detailed info for each share
-                success_info, info_output = run_cmd(f"net usershare info {share_name}")
-                if success_info:
-                    path = ""
-                    comment = ""
-                    for line in info_output.split('\n'):
-                        if line.startswith('path='):
-                            path = line.split('=', 1)[1]
-                        elif line.startswith('comment='):
-                            comment = line.split('=', 1)[1]
+            share_name = share_name.strip()
+            if not share_name:
+                continue
 
+            # Get detailed info for each share
+            success_info, info_output = run_cmd(f"net usershare info {share_name} 2>&1")
+
+            if success_info and info_output:
+                path = ""
+                comment = ""
+                for line in info_output.split('\n'):
+                    if line.startswith('path='):
+                        path = line.split('=', 1)[1]
+                    elif line.startswith('comment='):
+                        comment = line.split('=', 1)[1]
+
+                # Only add if we got valid path
+                if path:
                     shares.append({
                         'name': share_name,
                         'path': path,
                         'comment': comment
                     })
+                else:
+                    logging.warning(f"Share {share_name} has no path, skipping")
+                    corrupted_shares.append(share_name)
+            else:
+                # Share info failed - likely corrupted
+                logging.error(f"Failed to get info for share '{share_name}': {info_output}")
+                corrupted_shares.append(share_name)
+
+    # Log summary
+    if corrupted_shares:
+        logging.warning(f"Skipped {len(corrupted_shares)} corrupted share(s): {', '.join(corrupted_shares)}")
+        logging.info(f"To clean up corrupted shares, run: net usershare delete <sharename>")
+
     return shares
 
 def mount_device(device):
@@ -1977,14 +2311,20 @@ def remove_user():
 @app.route('/static/logo')
 def serve_logo():
     """Serve the RangerMark logo"""
-    # Logo is in the assets directory
-    logo_path = os.path.join(ASSETS_DIR, 'RangerMark.png')
+    # Try multiple potential logo locations
+    logo_paths = [
+        '/opt/proxmox-ranger/assets/RangerMark.png',
+        '/usr/local/bin/pmranger/assets/RangerMark.png',
+        '/opt/proxmox-ranger/RangerMark.png'
+    ]
 
-    if not os.path.exists(logo_path):
-        logging.error(f"Logo not found at {logo_path}")
-        abort(404)
+    for logo_path in logo_paths:
+        if os.path.exists(logo_path):
+            return send_file(logo_path, mimetype='image/png')
 
-    return send_file(logo_path, mimetype='image/png')
+    # Fallback: return 404
+    logging.warning("RangerMark logo not found in any expected location")
+    abort(404)
 
 @login_required
 @app.route('/logs')
@@ -1996,9 +2336,9 @@ def logs():
             manager_logs = f.read()
     except FileNotFoundError:
         manager_logs = "Log file not found"
-
+    
     try:
-        with open('/var/log/proxmox-ranger.log', 'r') as f:
+        with open('/var/log/hotswap-webui.log', 'r') as f:
             webui_logs = f.read()
     except FileNotFoundError:
         webui_logs = "Log file not found"
@@ -2316,6 +2656,72 @@ def logs():
             </div>
         </main>
     </div>
+
+    <script>
+    // Mount/Unmount operation feedback
+    document.addEventListener('DOMContentLoaded', function() {
+        // Handle all mount forms
+        const mountForms = document.querySelectorAll('.mount-form, .unmount-form');
+
+        mountForms.forEach(form => {
+            form.addEventListener('submit', function(e) {
+                const button = this.querySelector('button');
+                const deviceName = this.dataset.device;
+                const isMounting = this.classList.contains('mount-form');
+
+                // Add loading class to button
+                button.classList.add('btn-loading');
+                button.disabled = true;
+
+                // Find the device row and highlight it
+                const rows = document.querySelectorAll('tbody tr');
+                rows.forEach(row => {
+                    const deviceCell = row.querySelector('td:first-child span');
+                    if (deviceCell && deviceCell.textContent.trim() === deviceName) {
+                        row.classList.add('device-row-loading');
+                        if (isMounting) {
+                            row.setAttribute('data-status', 'Mounting device...');
+                        } else {
+                            row.setAttribute('data-status', 'Unmounting device...');
+                        }
+                    }
+                });
+
+                // Disable all other mount buttons to prevent concurrent operations
+                document.querySelectorAll('.mount-btn, .unmount-btn').forEach(btn => {
+                    if (btn !== button) {
+                        btn.disabled = true;
+                        btn.style.opacity = '0.5';
+                    }
+                });
+
+                // Show a toast notification
+                showToast(isMounting ? 'Mounting device...' : 'Unmounting device...', 'info');
+            });
+        });
+
+        // Toast notification system
+        function showToast(message, type = 'info') {
+            // Remove existing toast
+            const existing = document.querySelector('.toast-notification');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.className = `toast-notification toast-${type}`;
+            toast.innerHTML = `
+                <div class="toast-content">
+                    ${type === 'info' ? '<span class="spinner"></span>' : ''}
+                    <span>${message}</span>
+                </div>
+            `;
+
+            document.body.appendChild(toast);
+
+            // Auto-remove after operation completes (page will reload)
+            setTimeout(() => toast.remove(), 30000);
+        }
+    });
+    </script>
 </body>
 </html>
 '''
@@ -2331,7 +2737,7 @@ def logs():
 
 if __name__ == '__main__':
     # Ensure Samba is configured properly for username authentication
-    logging.info("Starting ProxMox Ranger Web UI")
+    logging.info("Starting Hot-Swap Web UI")
     ensure_samba_config()
     logging.info("Starting Flask application on port 8010")
     app.run(host='0.0.0.0', port=8010, debug=False)

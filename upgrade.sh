@@ -53,7 +53,7 @@ check_installed() {
 # Get current version
 get_current_version() {
     if [ -f "$BIN_DIR/pmranger" ]; then
-        grep -oP "version.*?'\K[^']+" "$BIN_DIR/pmranger" 2>/dev/null | head -1 || echo "unknown"
+        grep -oP "'version':\s*'\K[^']+" "$BIN_DIR/pmranger" 2>/dev/null | head -1 || echo "unknown"
     else
         echo "unknown"
     fi
@@ -129,7 +129,7 @@ restart_service() {
 
 # Get new version
 get_new_version() {
-    grep -oP "version.*?'\K[^']+" "$BIN_DIR/pmranger" 2>/dev/null | head -1 || echo "unknown"
+    grep -oP "'version':\s*'\K[^']+" "$BIN_DIR/pmranger" 2>/dev/null | head -1 || echo "unknown"
 }
 
 # Main upgrade process

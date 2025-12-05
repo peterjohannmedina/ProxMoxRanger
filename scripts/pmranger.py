@@ -2852,6 +2852,7 @@ def serve_logo():
     """Serve the RangerMark logo"""
     # Try multiple potential logo locations
     logo_paths = [
+        '/opt/proxmox-ranger/lib/assets/RangerMark.png',
         '/opt/proxmox-ranger/assets/RangerMark.png',
         '/usr/local/bin/pmranger/assets/RangerMark.png',
         '/opt/proxmox-ranger/RangerMark.png'

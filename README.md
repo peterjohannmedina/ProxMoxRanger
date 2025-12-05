@@ -205,6 +205,134 @@ For detailed installation steps, see [INSTALL.md](INSTALL.md)
 
 ---
 
+## 🔄 Upgrading from v1.0 to v1.2
+
+### Quick Upgrade (Recommended)
+
+If you have ProxMox Ranger v1.0 installed, upgrading to v1.2 is simple - **no uninstall required!**
+
+```bash
+# 1. Download v1.2
+git clone https://github.com/peterjohannmedina/ProxMoxRanger.git /tmp/ProxMoxRanger_v1.2
+cd /tmp/ProxMoxRanger_v1.2
+
+# 2. Run installer (will upgrade automatically)
+sudo bash install.sh
+
+# 3. Verify upgrade
+curl http://localhost:8010/api/info
+# Should show: "version": "1.2.0"
+
+# 4. Check UI - should see "v1.2" in sidebar
+```
+
+### What Gets Upgraded
+
+| Component | v1.0 | v1.2 | Notes |
+|-----------|------|------|-------|
+| **Binary** | `/opt/proxmox-ranger/bin/webui` | `/opt/proxmox-ranger/bin/pmranger` | New binary created |
+| **Script** | `webui.py` | `pmranger.py` | Renamed for consistency |
+| **Service** | References `webui` | References `pmranger` | Auto-updated |
+| **Port** | 8010 | 8010 | No change |
+| **Settings** | Preserved | Preserved | No data loss |
+
+### New Features in v1.2
+
+- **🌐 Multi-Node Support** - Manage multiple Proxmox nodes from one interface
+- **🔍 Auto-Discovery** - Automatically find other ProxMox Ranger instances on your network
+- **📡 REST API** - 10 new API endpoints for automation and inter-node communication
+- **🖥️ Node Selector** - Dropdown in sidebar to switch between nodes
+- **📌 Version Display** - Shows "v1.2" in the UI
+
+### Safe Upgrade (Stop Service First)
+
+If you want to be extra cautious:
+
+```bash
+# Stop the service
+sudo systemctl stop proxmox-ranger
+
+# Run upgrade
+cd /tmp/ProxMoxRanger_v1.2
+sudo bash install.sh
+
+# Service will auto-start after upgrade
+```
+
+### Clean Install (Alternative)
+
+If you prefer a fresh installation:
+
+```bash
+# 1. Uninstall v1.0
+sudo systemctl stop proxmox-ranger
+sudo systemctl disable proxmox-ranger
+sudo rm -rf /opt/proxmox-ranger
+sudo rm -f /etc/systemd/system/proxmox-ranger.service
+sudo systemctl daemon-reload
+
+# 2. Install v1.2
+cd /tmp/ProxMoxRanger_v1.2
+sudo bash install.sh
+```
+
+### Verify Upgrade Success
+
+```bash
+# Check service is running
+systemctl status proxmox-ranger
+
+# Check version via API
+curl http://localhost:8010/api/info | grep version
+
+# Check port is open
+ss -tlnp | grep :8010
+
+# Access UI and look for:
+# - "Hot-Swap Manager v1.2" in sidebar
+# - Node selector dropdown under logo
+# - "🔍 Scan" button
+```
+
+### Multi-Node Setup (New in v1.2)
+
+After upgrading all nodes, enable multi-node management:
+
+1. **Install v1.2 on each node** using the same upgrade process
+2. **Access any node's UI** at `http://NODE_IP:8010/shares`
+3. **Click the "🔍 Scan" button** to discover other nodes
+4. **Switch between nodes** using the dropdown in the sidebar
+
+See [MULTINODE_GUIDE.md](MULTINODE_GUIDE.md) for detailed multi-node setup instructions.
+
+### Troubleshooting Upgrade
+
+**Service won't start after upgrade:**
+```bash
+# Check logs
+journalctl -u proxmox-ranger -n 50
+
+# Check for errors
+tail -f /var/log/hotswap-webui.log
+```
+
+**Old `webui` binary interfering:**
+```bash
+# Remove old binary (optional cleanup)
+sudo rm -f /opt/proxmox-ranger/bin/webui
+```
+
+**Port 8010 not responding:**
+```bash
+# Check if something else is using the port
+sudo ss -tlnp | grep :8010
+
+# Restart service
+sudo systemctl restart proxmox-ranger
+```
+
+---
+
 ##  Usage
 
 ### Managing Storage Devices

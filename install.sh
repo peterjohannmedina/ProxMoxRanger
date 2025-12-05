@@ -190,12 +190,12 @@ check_port() {
 
     if ss -tlnp 2>/dev/null | grep -q ":$WEB_PORT " || netstat -tlnp 2>/dev/null | grep -q ":$WEB_PORT "; then
         print_warning "Port $WEB_PORT is already in use"
-        print_warning "Please free the port or change PORT in $BIN_DIR/webui after installation"
+        print_warning "Please free the port or change PORT in $BIN_DIR/pmranger after installation"
 
         # Check if running in interactive mode
         if [ ! -t 0 ]; then
             print_warning "Non-interactive mode - continuing with port $WEB_PORT"
-            print_info "You may need to manually change the port in $BIN_DIR/webui"
+            print_info "You may need to manually change the port in $BIN_DIR/pmranger"
         else
             # Interactive mode with timeout
             if read -t 20 -p "Continue anyway? (y/N): " -n 1 -r; then
@@ -258,13 +258,13 @@ setup_venv() {
 install_scripts() {
     print_info "Installing scripts..."
 
-    # Copy webui.py and rename without extension
-    if [ -f "$SCRIPT_DIR/scripts/webui.py" ]; then
-        cp "$SCRIPT_DIR/scripts/webui.py" "$BIN_DIR/webui"
-        chmod +x "$BIN_DIR/webui"
-        print_success "Installed webui"
+    # Copy pmranger.py and rename without extension
+    if [ -f "$SCRIPT_DIR/scripts/pmranger.py" ]; then
+        cp "$SCRIPT_DIR/scripts/pmranger.py" "$BIN_DIR/pmranger"
+        chmod +x "$BIN_DIR/pmranger"
+        print_success "Installed pmranger"
     else
-        print_error "webui.py not found in $SCRIPT_DIR/scripts/"
+        print_error "pmranger.py not found in $SCRIPT_DIR/scripts/"
         exit 1
     fi
 
@@ -295,7 +295,7 @@ create_symlinks() {
     if [ -L /usr/local/bin/pmranger ]; then
         rm /usr/local/bin/pmranger
     fi
-    ln -s "$BIN_DIR/webui" /usr/local/bin/pmranger
+    ln -s "$BIN_DIR/pmranger" /usr/local/bin/pmranger
 
     # Create symlink for CLI manager
     if [ -L /usr/local/bin/pmranger-cli ]; then
@@ -361,7 +361,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$VENV_DIR/bin/python3 $BIN_DIR/webui
+ExecStart=$VENV_DIR/bin/python3 $BIN_DIR/pmranger
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -434,7 +434,7 @@ print_completion() {
     echo "  Web UI:  pmranger"
     echo "  CLI:     pmranger-cli"
     echo ""
-    echo "Configuration: $BIN_DIR/webui"
+    echo "Configuration: $BIN_DIR/pmranger"
     echo ""
     print_warning "Default installation uses HTTP (not HTTPS)"
     print_warning "IP whitelisting is enabled - see INSTALL.md for configuration"

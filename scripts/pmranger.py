@@ -3,11 +3,15 @@
 import subprocess
 import json
 import logging
-from flask import Flask, render_template_string, request, redirect, url_for, abort, send_file, session, flash
+from flask import Flask, render_template_string, request, redirect, url_for, abort, send_file, session, flash, jsonify
 from functools import wraps
 import ipaddress
 import os
 from datetime import timedelta
+import socket
+import threading
+import time
+from typing import List, Dict, Optional
 
 # Configure logging
 logging.basicConfig(filename='/var/log/hotswap-webui.log', level=logging.INFO,
@@ -18,6 +22,165 @@ app = Flask(__name__)
 # Flask session configuration
 app.secret_key = os.urandom(24)
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=12)
+
+# ============================================================================
+# MULTI-NODE SUPPORT - Node Registry and Management
+# ============================================================================
+
+# Node registry - stores discovered/registered nodes
+NODES = []
+NODES_LOCK = threading.Lock()
+
+# Configuration
+NODE_DISCOVERY_ENABLED = True
+NODE_DISCOVERY_INTERVAL = 300  # 5 minutes
+LOCAL_NODE_INFO = {
+    'hostname': None,
+    'ip': None,
+    'port': 8010,
+    'version': '1.2.0'
+}
+
+def get_local_node_info():
+    """Get information about the local node"""
+    if LOCAL_NODE_INFO['hostname'] is None:
+        success, hostname = run_cmd_simple("hostname")
+        LOCAL_NODE_INFO['hostname'] = hostname if success else "unknown"
+
+    if LOCAL_NODE_INFO['ip'] is None:
+        try:
+            # Get IP by connecting to external host
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            LOCAL_NODE_INFO['ip'] = s.getsockname()[0]
+            s.close()
+        except:
+            LOCAL_NODE_INFO['ip'] = '127.0.0.1'
+
+    return LOCAL_NODE_INFO
+
+def run_cmd_simple(cmd):
+    """Simple command execution without full error handling"""
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+        return result.returncode == 0, result.stdout.strip()
+    except:
+        return False, ""
+
+def register_node(hostname: str, ip: str, port: int = 8010, auto_discovered: bool = False):
+    """Register a node in the registry"""
+    with NODES_LOCK:
+        # Check if node already exists
+        for node in NODES:
+            if node['ip'] == ip and node['port'] == port:
+                # Update existing node
+                node['last_seen'] = time.time()
+                node['status'] = 'online'
+                return node
+
+        # Add new node
+        node = {
+            'hostname': hostname,
+            'ip': ip,
+            'port': port,
+            'auto_discovered': auto_discovered,
+            'registered_at': time.time(),
+            'last_seen': time.time(),
+            'status': 'online'
+        }
+        NODES.append(node)
+        logging.info(f"Registered node: {hostname} ({ip}:{port})")
+        return node
+
+def unregister_node(ip: str, port: int = 8010):
+    """Remove a node from the registry"""
+    with NODES_LOCK:
+        NODES[:] = [n for n in NODES if not (n['ip'] == ip and n['port'] == port)]
+        logging.info(f"Unregistered node: {ip}:{port}")
+
+def get_nodes():
+    """Get list of all registered nodes"""
+    with NODES_LOCK:
+        return list(NODES)
+
+def check_node_status(ip: str, port: int = 8010, timeout: int = 2) -> bool:
+    """Check if a node is online by trying to connect"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((ip, port))
+        sock.close()
+        return result == 0
+    except:
+        return False
+
+def discover_nodes_on_network(network_range: str = None):
+    """Discover ProxMox Ranger nodes on the local network"""
+    if not NODE_DISCOVERY_ENABLED:
+        return
+
+    logging.info("Starting node discovery scan...")
+
+    # If no network range specified, use local network
+    if network_range is None:
+        local_ip = get_local_node_info()['ip']
+        # Convert to /24 network
+        ip_parts = local_ip.split('.')
+        network_range = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
+
+    try:
+        network = ipaddress.ip_network(network_range, strict=False)
+        discovered_count = 0
+
+        for ip in network.hosts():
+            ip_str = str(ip)
+
+            # Skip local IP
+            if ip_str == get_local_node_info()['ip']:
+                continue
+
+            # Quick port check
+            if check_node_status(ip_str, 8010, timeout=0.5):
+                try:
+                    # Try to get node info via API
+                    import urllib.request
+                    url = f"http://{ip_str}:8010/api/info"
+                    req = urllib.request.Request(url, headers={'User-Agent': 'ProxMoxRanger/1.2'})
+                    with urllib.request.urlopen(req, timeout=2) as response:
+                        if response.status == 200:
+                            data = json.loads(response.read().decode())
+                            if data.get('app') == 'ProxMoxRanger':
+                                register_node(
+                                    hostname=data.get('hostname', ip_str),
+                                    ip=ip_str,
+                                    port=8010,
+                                    auto_discovered=True
+                                )
+                                discovered_count += 1
+                                logging.info(f"Discovered node: {data.get('hostname')} at {ip_str}")
+                except:
+                    pass
+
+        logging.info(f"Node discovery complete. Found {discovered_count} nodes.")
+    except Exception as e:
+        logging.error(f"Node discovery error: {e}")
+
+def node_discovery_worker():
+    """Background worker for periodic node discovery"""
+    while NODE_DISCOVERY_ENABLED:
+        try:
+            discover_nodes_on_network()
+        except Exception as e:
+            logging.error(f"Discovery worker error: {e}")
+
+        # Wait for next scan
+        time.sleep(NODE_DISCOVERY_INTERVAL)
+
+# Start discovery worker thread
+if NODE_DISCOVERY_ENABLED:
+    discovery_thread = threading.Thread(target=node_discovery_worker, daemon=True)
+    discovery_thread.start()
+    logging.info("Node discovery worker started")
 
 
 
@@ -186,6 +349,88 @@ HTML_TEMPLATE = """
         .brand-text .subtitle {
             font-size: 12px;
             color: var(--text-secondary);
+        }
+
+        /* Node Selector */
+        .node-selector-container {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+
+        .node-selector-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .node-icon {
+            font-size: 14px;
+        }
+
+        .node-selector {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 8px;
+        }
+
+        .node-selector:hover {
+            border-color: var(--primary-color);
+            background: var(--bg-hover);
+        }
+
+        .node-selector:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .node-selector option {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 8px;
+        }
+
+        .btn-discover-nodes {
+            width: 100%;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn-discover-nodes:hover {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .discover-icon {
+            font-size: 14px;
         }
 
         .nav-menu {
@@ -1019,9 +1264,23 @@ HTML_TEMPLATE = """
                     <img src="/static/logo" alt="Ranger">
                     <div class="brand-text">
                         <h1>ProxMox Ranger</h1>
-                        <div class="subtitle">Hot-Swap Manager</div>
+                        <div class="subtitle">Hot-Swap Manager v1.2</div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Node Selector -->
+            <div class="node-selector-container">
+                <label for="nodeSelector" class="node-selector-label">
+                    <span class="node-icon">🖥️</span>
+                    Select Node
+                </label>
+                <select id="nodeSelector" class="node-selector" onchange="switchNode()">
+                    <option value="local" selected>{{ hostname }} (Local)</option>
+                </select>
+                <button class="btn-discover-nodes" onclick="discoverNodes()" title="Discover nodes on network">
+                    <span class="discover-icon">🔍</span> Scan
+                </button>
             </div>
 
             <nav class="nav-menu">
@@ -1454,6 +1713,117 @@ HTML_TEMPLATE = """
         document.getElementById('shareModal').addEventListener('click', (e) => {
             if (e.target === document.getElementById('shareModal')) closeModal();
         });
+
+        // ===== MULTI-NODE SUPPORT FUNCTIONS =====
+
+        let currentSelectedNode = 'local';
+        let nodesCache = [];
+
+        // Load nodes on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadNodes();
+        });
+
+        function loadNodes() {
+            fetch('/api/nodes')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        nodesCache = data.nodes;
+                        updateNodeSelector();
+                    }
+                })
+                .catch(error => console.error('Error loading nodes:', error));
+        }
+
+        function updateNodeSelector() {
+            const selector = document.getElementById('nodeSelector');
+            if (!selector) return;
+
+            // Clear existing options
+            selector.innerHTML = '';
+
+            // Add nodes to dropdown
+            nodesCache.forEach(node => {
+                const option = document.createElement('option');
+                option.value = node.is_local ? 'local' : node.ip;
+                option.textContent = node.is_local
+                    ? `${node.hostname} (Local)`
+                    : `${node.hostname} (${node.ip})${node.auto_discovered ? ' 🔍' : ''}`;
+
+                if (node.status !== 'online') {
+                    option.textContent += ' [OFFLINE]';
+                    option.disabled = true;
+                }
+
+                if (node.is_local || option.value === currentSelectedNode) {
+                    option.selected = true;
+                    currentSelectedNode = option.value;
+                }
+
+                selector.appendChild(option);
+            });
+        }
+
+        function switchNode() {
+            const selector = document.getElementById('nodeSelector');
+            const selectedValue = selector.value;
+
+            currentSelectedNode = selectedValue;
+
+            if (selectedValue === 'local') {
+                // Reload current page to show local node
+                window.location.reload();
+            } else {
+                // Navigate to remote node
+                const selectedNode = nodesCache.find(n => n.ip === selectedValue);
+                if (selectedNode) {
+                    const remoteUrl = `http://${selectedNode.ip}:${selectedNode.port}/shares`;
+                    window.location.href = remoteUrl;
+                }
+            }
+        }
+
+        function discoverNodes() {
+            const btn = event.target.closest('.btn-discover-nodes');
+            const originalText = btn.innerHTML;
+
+            // Show loading state
+            btn.disabled = true;
+            btn.innerHTML = '<span class="discover-icon">⏳</span> Scanning...';
+
+            fetch('/api/nodes/discover', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Wait a bit for discovery to find nodes, then reload
+                    setTimeout(() => {
+                        loadNodes();
+                        btn.disabled = false;
+                        btn.innerHTML = '<span class="discover-icon">✓</span> Complete!';
+                        setTimeout(() => {
+                            btn.innerHTML = originalText;
+                        }, 2000);
+                    }, 3000);
+                } else {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span class="discover-icon">✗</span> Failed';
+                    setTimeout(() => {
+                        btn.innerHTML = originalText;
+                    }, 2000);
+                }
+            })
+            .catch(error => {
+                console.error('Discovery error:', error);
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
+        }
     </script>
 </body>
 </html>
@@ -1987,6 +2357,175 @@ def format_device(device, fstype):
     else:
         logging.error(f"Failed to format {device}: {output}")
         return False, f"Failed to format {device}: {output}"
+
+
+# ============================================================================
+# REST API ENDPOINTS - Multi-Node Communication
+# ============================================================================
+
+@app.route('/api/info', methods=['GET'])
+def api_info():
+    """Public endpoint - Returns basic node information"""
+    node_info = get_local_node_info()
+    return jsonify({
+        'app': 'ProxMoxRanger',
+        'version': node_info['version'],
+        'hostname': node_info['hostname'],
+        'ip': node_info['ip'],
+        'port': node_info['port']
+    })
+
+@app.route('/api/devices', methods=['GET'])
+@ip_whitelist_required
+def api_get_devices():
+    """API endpoint - Get all block devices"""
+    try:
+        devices = get_devices()
+        return jsonify({'success': True, 'devices': devices})
+    except Exception as e:
+        logging.error(f"API error getting devices: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mounts', methods=['GET'])
+@ip_whitelist_required
+def api_get_mounts():
+    """API endpoint - Get all mounted devices"""
+    try:
+        mounts = get_mounts()
+        return jsonify({'success': True, 'mounts': mounts})
+    except Exception as e:
+        logging.error(f"API error getting mounts: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/shares', methods=['GET'])
+@ip_whitelist_required
+def api_get_shares():
+    """API endpoint - Get all SMB shares"""
+    try:
+        shares = get_shares()
+        return jsonify({'success': True, 'shares': shares})
+    except Exception as e:
+        logging.error(f"API error getting shares: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/mount', methods=['POST'])
+@ip_whitelist_required
+def api_mount_device():
+    """API endpoint - Mount a device"""
+    try:
+        data = request.get_json()
+        device = data.get('device')
+        if not device:
+            return jsonify({'success': False, 'error': 'Device parameter required'}), 400
+
+        success, message = mount_device(device)
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logging.error(f"API error mounting device: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/unmount', methods=['POST'])
+@ip_whitelist_required
+def api_unmount_device():
+    """API endpoint - Unmount a device"""
+    try:
+        data = request.get_json()
+        device = data.get('device')
+        if not device:
+            return jsonify({'success': False, 'error': 'Device parameter required'}), 400
+
+        success, message = unmount_device(device)
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logging.error(f"API error unmounting device: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/nodes', methods=['GET'])
+@ip_whitelist_required
+def api_get_nodes():
+    """API endpoint - Get all registered nodes"""
+    try:
+        nodes = get_nodes()
+        local_info = get_local_node_info()
+
+        # Add local node to the list
+        all_nodes = [{
+            'hostname': local_info['hostname'],
+            'ip': local_info['ip'],
+            'port': local_info['port'],
+            'status': 'online',
+            'is_local': True
+        }]
+
+        # Add registered nodes
+        for node in nodes:
+            all_nodes.append({
+                'hostname': node['hostname'],
+                'ip': node['ip'],
+                'port': node['port'],
+                'status': node['status'],
+                'is_local': False,
+                'auto_discovered': node.get('auto_discovered', False)
+            })
+
+        return jsonify({'success': True, 'nodes': all_nodes})
+    except Exception as e:
+        logging.error(f"API error getting nodes: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/nodes/register', methods=['POST'])
+@ip_whitelist_required
+def api_register_node():
+    """API endpoint - Manually register a node"""
+    try:
+        data = request.get_json()
+        hostname = data.get('hostname')
+        ip = data.get('ip')
+        port = data.get('port', 8010)
+
+        if not hostname or not ip:
+            return jsonify({'success': False, 'error': 'Hostname and IP required'}), 400
+
+        node = register_node(hostname, ip, port, auto_discovered=False)
+        return jsonify({'success': True, 'node': node})
+    except Exception as e:
+        logging.error(f"API error registering node: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/nodes/unregister', methods=['POST'])
+@ip_whitelist_required
+def api_unregister_node():
+    """API endpoint - Unregister a node"""
+    try:
+        data = request.get_json()
+        ip = data.get('ip')
+        port = data.get('port', 8010)
+
+        if not ip:
+            return jsonify({'success': False, 'error': 'IP required'}), 400
+
+        unregister_node(ip, port)
+        return jsonify({'success': True, 'message': f'Node {ip}:{port} unregistered'})
+    except Exception as e:
+        logging.error(f"API error unregistering node: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/nodes/discover', methods=['POST'])
+@ip_whitelist_required
+def api_discover_nodes():
+    """API endpoint - Trigger node discovery scan"""
+    try:
+        data = request.get_json() or {}
+        network_range = data.get('network_range')
+
+        # Run discovery in background thread
+        thread = threading.Thread(target=discover_nodes_on_network, args=(network_range,))
+        thread.start()
+
+        return jsonify({'success': True, 'message': 'Node discovery started'})
+    except Exception as e:
+        logging.error(f"API error starting discovery: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/login', methods=['GET', 'POST'])

@@ -33,7 +33,7 @@ NODES_LOCK = threading.Lock()
 
 # Configuration
 NODE_DISCOVERY_ENABLED = True
-NODE_DISCOVERY_INTERVAL = 300  # 5 minutes
+NODE_DISCOVERY_INTERVAL = 60  # 1 minute
 LOCAL_NODE_INFO = {
     'hostname': None,
     'ip': None,
@@ -1798,7 +1798,12 @@ HTML_TEMPLATE = """
                     'Content-Type': 'application/json'
                 }
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.success) {
                     // Wait a bit for discovery to find nodes, then reload
@@ -1812,10 +1817,10 @@ HTML_TEMPLATE = """
                     }, 3000);
                 } else {
                     btn.disabled = false;
-                    btn.innerHTML = '<span class="discover-icon">✗</span> Failed';
+                    btn.innerHTML = '<span class="discover-icon">✗</span> ' + (data.error || 'Failed');
                     setTimeout(() => {
                         btn.innerHTML = originalText;
-                    }, 2000);
+                    }, 3000);
                 }
             })
             .catch(error => {
@@ -2511,6 +2516,7 @@ def api_unregister_node():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/nodes/discover', methods=['POST'])
+@login_required
 @ip_whitelist_required
 def api_discover_nodes():
     """API endpoint - Trigger node discovery scan"""

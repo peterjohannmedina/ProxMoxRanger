@@ -60,8 +60,15 @@ clone_repo_if_needed() {
         # Install git if not present
         if ! command -v git &> /dev/null; then
             print_info "Installing git..."
-            apt update > /dev/null 2>&1
-            apt install -y git > /dev/null 2>&1
+            if ! apt update; then
+                print_error "Failed to update apt package lists. Check network connectivity."
+                exit 1
+            fi
+            if ! apt install -y git; then
+                print_error "Failed to install git. Please install it manually: apt install -y git"
+                exit 1
+            fi
+            print_success "Git installed successfully"
         fi
 
         # Create temporary directory
@@ -69,11 +76,11 @@ clone_repo_if_needed() {
         TEMP_CLONE=true
 
         print_info "Cloning ProxMox Ranger repository..."
-        if git clone --depth 1 "$REPO_URL" "$TEMP_DIR/repo" > /dev/null 2>&1; then
+        if git clone --depth 1 "$REPO_URL" "$TEMP_DIR/repo"; then
             SCRIPT_DIR="$TEMP_DIR/repo"
             print_success "Repository cloned successfully"
         else
-            print_error "Failed to clone repository"
+            print_error "Failed to clone repository. Check network connectivity to github.com"
             exit 1
         fi
     else

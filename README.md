@@ -8,6 +8,11 @@
   <strong>A modern, secure web-based hot-swap storage manager for Proxmox VE</strong>
 </p>
 
+<p align="center">
+  <strong>✨ Latest Release: v1.3.0 - Web Services Discovery</strong><br>
+  <a href="#upgrade-to-latest-version-v130">Upgrade Now</a> | <a href="CHANGELOG.md">What's New</a> | <a href="WEB_SERVICES_SETUP.md">Setup Guide</a>
+</p>
+
 <!-- Project motivation + screenshot for the repository page summary -->
 <p align="center">
   <strong>Motivation</strong>
@@ -19,6 +24,7 @@ ProxMox Ranger was built so that anyone running Proxmox on cluster/compute nodes
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/version-1.3.0-brightgreen" alt="Version 1.3.0"/>
   <img src="https://img.shields.io/badge/Proxmox-VE%207%2B-orange" alt="Proxmox VE 7+"/>
   <img src="https://img.shields.io/badge/Python-3.7%2B-blue" alt="Python 3.7+"/>
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License"/>
@@ -168,6 +174,30 @@ http://YOUR_PROXMOX_IP:8010
 ```
 
 **Default Login:** Use your Proxmox host credentials (e.g., root and your root password)
+
+### Upgrade to Latest Version (v1.3.0)
+
+**One-Command Upgrade:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/peterjohannmedina/ProxMoxRanger/main/upgrade.sh | bash
+```
+
+This will:
+- Backup your current installation
+- Download the latest version (v1.3.0)
+- Install new dependencies (proxmoxer, requests)
+- Restart the service
+- Preserve all your settings and data
+
+**What's New in v1.3.0:**
+- 🌐 Web Services Discovery with full port scanning
+- 📊 Live progress terminal with ETA calculation
+- 💾 Persistent scans that survive browser refreshes
+- 🔍 Proxmox API integration for VM/LXC detection
+- ⚡ Auto-resume capability for long-running scans
+
+See [CHANGELOG.md](CHANGELOG.md) for complete release notes.
 
 ---
 

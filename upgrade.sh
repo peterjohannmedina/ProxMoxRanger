@@ -79,10 +79,33 @@ backup_current() {
     print_success "Backup created"
 }
 
+# Install/Update dependencies
+update_dependencies() {
+    print_info "Updating Python dependencies..."
+
+    # Download requirements.txt
+    if curl -fsSL "$REPO_URL/requirements.txt" -o "$INSTALL_DIR/requirements.txt.new"; then
+        mv "$INSTALL_DIR/requirements.txt.new" "$INSTALL_DIR/requirements.txt"
+
+        # Install dependencies in virtual environment if it exists, otherwise system-wide
+        if [ -d "$INSTALL_DIR/venv" ]; then
+            print_info "Installing dependencies in virtual environment..."
+            "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" --upgrade
+        else
+            print_info "Installing dependencies system-wide..."
+            pip3 install -r "$INSTALL_DIR/requirements.txt" --upgrade
+        fi
+
+        print_success "Dependencies updated"
+    else
+        print_warning "Failed to download requirements.txt (dependencies may not be updated)"
+    fi
+}
+
 # Download and update files
 update_files() {
     print_info "Downloading latest version..."
-    
+
     # Update main script
     if curl -fsSL "$REPO_URL/scripts/pmranger.py" -o "$BIN_DIR/pmranger.new"; then
         mv "$BIN_DIR/pmranger.new" "$BIN_DIR/pmranger"
@@ -92,7 +115,7 @@ update_files() {
         print_error "Failed to download pmranger.py"
         exit 1
     fi
-    
+
     # Update hotswap-manager
     if curl -fsSL "$REPO_URL/scripts/hotswap-manager.sh" -o "$BIN_DIR/hotswap-manager.new"; then
         mv "$BIN_DIR/hotswap-manager.new" "$BIN_DIR/hotswap-manager"
@@ -101,11 +124,11 @@ update_files() {
     else
         print_warning "Failed to download hotswap-manager.sh (may not have changed)"
     fi
-    
+
     # Update assets
     print_info "Updating assets..."
     mkdir -p "$ASSETS_DIR"
-    
+
     for asset in RangerMark.png github-logo-white.png github-mark-white.png; do
         if curl -fsSL "$REPO_URL/assets/$asset" -o "$ASSETS_DIR/$asset.new" 2>/dev/null; then
             mv "$ASSETS_DIR/$asset.new" "$ASSETS_DIR/$asset"
@@ -136,22 +159,23 @@ get_new_version() {
 main() {
     echo ""
     echo "=========================================================================="
-    echo "  ProxMox Ranger - Upgrade"
+    echo "  ProxMox Ranger - Upgrade to v1.3.0"
     echo "=========================================================================="
     echo ""
-    
+
     check_root
     check_installed
-    
+
     CURRENT_VERSION=$(get_current_version)
     print_info "Current version: $CURRENT_VERSION"
-    
+
     backup_current
+    update_dependencies
     update_files
     restart_service
-    
+
     NEW_VERSION=$(get_new_version)
-    
+
     echo ""
     echo "=========================================================================="
     echo -e "  ${GREEN}Upgrade Complete!${NC}"
@@ -159,6 +183,17 @@ main() {
     echo ""
     echo "  Previous version: $CURRENT_VERSION"
     echo "  New version:      $NEW_VERSION"
+    echo ""
+    echo "  ${BLUE}What's New in v1.3.0:${NC}"
+    echo "  - Web Services Discovery with full port scanning"
+    echo "  - Live progress terminal with ETA calculation"
+    echo "  - Persistent scans that survive browser refreshes"
+    echo "  - Proxmox API integration for VM/LXC detection"
+    echo ""
+    echo "  ${YELLOW}Next Steps:${NC}"
+    echo "  1. Configure Proxmox API token (optional but recommended)"
+    echo "  2. See WEB_SERVICES_SETUP.md for detailed instructions"
+    echo "  3. Access the dashboard to try Web Services Discovery"
     echo ""
     echo "  Service status: $(systemctl is-active proxmox-ranger)"
     echo ""

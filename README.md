@@ -84,6 +84,16 @@ Managing hot-swap drives in a home lab or production Proxmox environment shouldn
   - Visual indicators for device health
   - Network share status tracking
 
+- **🌐 Web Services Discovery** *(New in v1.3)*
+  - Automatic port scanning to discover web services on nodes, VMs, and LXCs
+  - Full port range scanning (1-65535) with persistent progress tracking
+  - Live terminal showing real-time scan progress with ETA
+  - Proxmox API integration for VM/LXC source identification
+  - Clickable service links that open in new browser tabs
+  - Persistent scans that survive browser refreshes
+  - Automatic service identification (Proxmox, Portainer, Grafana, etc.)
+  - Background scanning every 15 minutes with manual refresh option
+
 ### Security & Authentication
 
 - **🔐 Secure Login System**

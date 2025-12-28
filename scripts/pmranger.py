@@ -41,6 +41,105 @@ LOCAL_NODE_INFO = {
     'version': '1.2.0'
 }
 
+# ============================================================================
+# WEB SERVICES DISCOVERY - Configuration
+# ============================================================================
+
+# Web Services Discovery Configuration
+WEB_SERVICES_ENABLED = True
+WEB_SERVICES_SCAN_INTERVAL = 900  # 15 minutes in seconds
+WEB_SERVICES_CACHE = {}
+WEB_SERVICES_LOCK = threading.Lock()
+WEB_SERVICES_PROGRESS_FILE = '/tmp/proxmox-ranger-scan-progress.json'
+WEB_SERVICES_SCAN_PROGRESS = {
+    'scanning': False,
+    'full_scan': False,
+    'progress': [],
+    'total_hosts': 0,
+    'current_host': 0,
+    'current_host_name': '',
+    'current_port': 0,
+    'total_ports': 0,
+    'ports_scanned': 0,
+    'ports_found': 0,
+    'start_time': 0,
+    'estimated_remaining': 0
+}
+WEB_SERVICES_PROGRESS_LOCK = threading.Lock()
+
+# Proxmox API Configuration
+PROXMOX_API_ENABLED = True
+PROXMOX_HOST = 'localhost'
+PROXMOX_USER = 'root@pam'
+PROXMOX_TOKEN_NAME = 'ranger-scanner'
+PROXMOX_TOKEN_VALUE = 'a8ee4b62-6527-46d7-804a-0fe3abe4df32'
+
+# Common web ports to scan
+WEB_PORTS = [80, 443, 8006, 8008, 8010, 8080, 8443, 3000, 5000, 5001, 9090, 8123, 3001, 19999]
+
+def save_scan_progress():
+    """Save scan progress to disk for persistence across refreshes"""
+    try:
+        with WEB_SERVICES_PROGRESS_LOCK:
+            with open(WEB_SERVICES_PROGRESS_FILE, 'w') as f:
+                json.dump(WEB_SERVICES_SCAN_PROGRESS, f)
+    except Exception as e:
+        logging.error(f"Error saving scan progress: {e}")
+
+def load_scan_progress():
+    """Load scan progress from disk on startup"""
+    global WEB_SERVICES_SCAN_PROGRESS
+    try:
+        if os.path.exists(WEB_SERVICES_PROGRESS_FILE):
+            with open(WEB_SERVICES_PROGRESS_FILE, 'r') as f:
+                loaded = json.load(f)
+                with WEB_SERVICES_PROGRESS_LOCK:
+                    WEB_SERVICES_SCAN_PROGRESS.update(loaded)
+                logging.info(f"Loaded scan progress from disk. Scanning: {WEB_SERVICES_SCAN_PROGRESS.get('scanning', False)}")
+    except Exception as e:
+        logging.error(f"Error loading scan progress: {e}")
+
+def update_scan_progress(message: str, current_host: int = None, total_hosts: int = None,
+                         current_port: int = None, total_ports: int = None,
+                         ports_scanned: int = None, ports_found: int = None,
+                         current_host_name: str = None):
+    """Update the scan progress for live terminal display"""
+    global WEB_SERVICES_SCAN_PROGRESS
+    with WEB_SERVICES_PROGRESS_LOCK:
+        WEB_SERVICES_SCAN_PROGRESS['progress'].append({
+            'timestamp': time.time(),
+            'message': message
+        })
+        # Keep only last 100 messages for full scans
+        if len(WEB_SERVICES_SCAN_PROGRESS['progress']) > 100:
+            WEB_SERVICES_SCAN_PROGRESS['progress'] = WEB_SERVICES_SCAN_PROGRESS['progress'][-100:]
+
+        if current_host is not None:
+            WEB_SERVICES_SCAN_PROGRESS['current_host'] = current_host
+        if total_hosts is not None:
+            WEB_SERVICES_SCAN_PROGRESS['total_hosts'] = total_hosts
+        if current_port is not None:
+            WEB_SERVICES_SCAN_PROGRESS['current_port'] = current_port
+        if total_ports is not None:
+            WEB_SERVICES_SCAN_PROGRESS['total_ports'] = total_ports
+        if ports_scanned is not None:
+            WEB_SERVICES_SCAN_PROGRESS['ports_scanned'] = ports_scanned
+        if ports_found is not None:
+            WEB_SERVICES_SCAN_PROGRESS['ports_found'] = ports_found
+        if current_host_name is not None:
+            WEB_SERVICES_SCAN_PROGRESS['current_host_name'] = current_host_name
+
+        # Calculate progress percentage and ETA for full scans
+        if WEB_SERVICES_SCAN_PROGRESS.get('full_scan') and total_ports and ports_scanned:
+            elapsed = time.time() - WEB_SERVICES_SCAN_PROGRESS.get('start_time', time.time())
+            if ports_scanned > 0:
+                avg_time_per_port = elapsed / ports_scanned
+                remaining_ports = total_ports - ports_scanned
+                WEB_SERVICES_SCAN_PROGRESS['estimated_remaining'] = int(avg_time_per_port * remaining_ports)
+
+    # Save to disk every update
+    save_scan_progress()
+
 def get_local_node_info():
     """Get information about the local node"""
     if LOCAL_NODE_INFO['hostname'] is None:
@@ -114,6 +213,413 @@ def check_node_status(ip: str, port: int = 8010, timeout: int = 2) -> bool:
     except:
         return False
 
+# ============================================================================
+# WEB SERVICES DISCOVERY - Core Scanning Functions
+# ============================================================================
+
+def scan_port(host: str, port: int, timeout: float = 0.5) -> bool:
+    """Check if a TCP port is open using socket connection"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except:
+        return False
+
+def scan_host_ports(host: str, ports, report_progress: bool = True, is_full_scan: bool = False) -> List[int]:
+    """Scan multiple ports on a host, return list of open ports"""
+    open_ports = []
+    ports_list = list(ports) if not isinstance(ports, list) else ports
+    total_ports = len(ports_list)
+
+    # Report progress every N ports (100 for full scan, 1 for quick scan)
+    progress_interval = 100 if is_full_scan else 1
+
+    for idx, port in enumerate(ports_list):
+        ports_scanned = idx + 1
+
+        # Report progress at intervals
+        if report_progress and (ports_scanned % progress_interval == 0 or ports_scanned == total_ports):
+            percentage = (ports_scanned / total_ports) * 100
+            update_scan_progress(
+                f"Scanning {host} - Port {port} ({ports_scanned}/{total_ports} = {percentage:.1f}%)",
+                current_port=port,
+                total_ports=total_ports,
+                ports_scanned=ports_scanned,
+                ports_found=len(open_ports),
+                current_host_name=host
+            )
+
+        if scan_port(host, port, timeout=0.5):
+            open_ports.append(port)
+            if report_progress:
+                update_scan_progress(f"✓ Found open port {host}:{port}", ports_found=len(open_ports))
+
+    return open_ports
+
+def detect_service_name(server: str, title: str, html: str, port: int) -> str:
+    """Detect service name from HTTP response patterns"""
+    server_lower = server.lower()
+    title_lower = title.lower()
+    html_lower = html.lower()[:1000]  # Check first 1KB
+
+    # Proxmox VE
+    if port == 8006 or 'pve' in title_lower or 'proxmox' in title_lower:
+        return 'Proxmox VE Web UI'
+
+    # Portainer
+    if 'portainer' in title_lower or 'portainer' in html_lower:
+        return 'Portainer'
+
+    # Grafana
+    if 'grafana' in title_lower or 'grafana' in server_lower:
+        return 'Grafana'
+
+    # Netdata
+    if port == 19999 or 'netdata' in title_lower:
+        return 'Netdata Dashboard'
+
+    # Home Assistant
+    if port == 8123 or 'home assistant' in title_lower:
+        return 'Home Assistant'
+
+    # Cockpit
+    if 'cockpit' in title_lower or port == 9090:
+        return 'Cockpit System Manager'
+
+    # Generic web servers
+    if 'nginx' in server_lower:
+        return f'Nginx Web Server{" - " + title if title else ""}'
+    if 'apache' in server_lower:
+        return f'Apache Web Server{" - " + title if title else ""}'
+
+    # Use title if available
+    if title and len(title) < 50:
+        return title
+
+    # Fallback
+    return f'Web Service (Port {port})'
+
+def identify_web_service(host: str, port: int) -> Dict[str, str]:
+    """Probe HTTP/HTTPS service to identify type"""
+    import urllib.request
+    import ssl
+
+    # Try HTTPS first for common HTTPS ports, then HTTP
+    protocols = ['https', 'http'] if port in [443, 8443, 8006] else ['http', 'https']
+
+    for protocol in protocols:
+        try:
+            url = f"{protocol}://{host}:{port}"
+
+            # Create unverified SSL context for self-signed certs
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+            req = urllib.request.Request(url, headers={'User-Agent': 'ProxMoxRanger/1.2'})
+            with urllib.request.urlopen(req, timeout=2, context=ctx) as response:
+                html = response.read().decode('utf-8', errors='ignore')
+                headers = response.headers
+
+                # Extract server header
+                server = headers.get('Server', '')
+
+                # Extract HTML title
+                title = ''
+                if '<title>' in html.lower():
+                    start = html.lower().find('<title>') + 7
+                    end = html.lower().find('</title>', start)
+                    if end > start:
+                        title = html[start:end].strip()
+
+                # Identify service based on patterns
+                service_name = detect_service_name(server, title, html, port)
+
+                return {
+                    'name': service_name,
+                    'url': url,
+                    'protocol': protocol,
+                    'server': server,
+                    'title': title,
+                    'port': port
+                }
+        except:
+            continue
+
+    # If both protocols fail, return generic service
+    return {
+        'name': 'Unknown Web Service',
+        'url': f'http://{host}:{port}',
+        'protocol': 'http',
+        'server': '',
+        'title': '',
+        'port': port
+    }
+
+def get_proxmox_vms_and_lxcs() -> List[Dict]:
+    """Query Proxmox API for running VMs and LXC containers with their IPs"""
+    if not PROXMOX_API_ENABLED:
+        return []
+
+    # Check if credentials are configured
+    if not PROXMOX_TOKEN_NAME or not PROXMOX_TOKEN_VALUE:
+        logging.warning("Proxmox API enabled but credentials not configured")
+        return []
+
+    try:
+        from proxmoxer import ProxmoxAPI
+
+        proxmox = ProxmoxAPI(
+            PROXMOX_HOST,
+            user=PROXMOX_USER,
+            token_name=PROXMOX_TOKEN_NAME,
+            token_value=PROXMOX_TOKEN_VALUE,
+            verify_ssl=False
+        )
+
+        guests = []
+
+        # Get all nodes
+        for node in proxmox.nodes.get():
+            node_name = node['node']
+
+            # Get VMs (qemu)
+            try:
+                for vm in proxmox.nodes(node_name).qemu.get():
+                    if vm['status'] == 'running':
+                        vmid = vm['vmid']
+                        vm_name = vm.get('name', f'VM-{vmid}')
+
+                        # Try to get network interfaces from guest agent
+                        ips = []
+                        try:
+                            agent_info = proxmox.nodes(node_name).qemu(vmid).agent.get('network-get-interfaces')
+                            if 'result' in agent_info:
+                                for iface in agent_info['result']:
+                                    if 'ip-addresses' in iface:
+                                        for ip_info in iface['ip-addresses']:
+                                            ip = ip_info.get('ip-address', '')
+                                            # Skip loopback and IPv6
+                                            if ip and not ip.startswith('127.') and ':' not in ip:
+                                                ips.append(ip)
+                        except:
+                            # Guest agent not available or not responding
+                            pass
+
+                        if ips:  # Only add if we found IPs
+                            guests.append({
+                                'type': 'VM',
+                                'id': vmid,
+                                'name': vm_name,
+                                'node': node_name,
+                                'ips': ips
+                            })
+            except Exception as e:
+                logging.debug(f"Error querying VMs on node {node_name}: {e}")
+
+            # Get LXC containers
+            try:
+                for lxc in proxmox.nodes(node_name).lxc.get():
+                    if lxc['status'] == 'running':
+                        vmid = lxc['vmid']
+                        lxc_name = lxc.get('name', f'CT-{vmid}')
+
+                        # Try to get IPs from LXC interfaces
+                        ips = []
+                        try:
+                            interfaces = proxmox.nodes(node_name).lxc(vmid).interfaces.get()
+                            for iface in interfaces:
+                                if 'inet' in iface:
+                                    ip = iface['inet'].split('/')[0]  # Remove CIDR notation
+                                    # Skip loopback
+                                    if ip and not ip.startswith('127.'):
+                                        ips.append(ip)
+                        except:
+                            # Try alternative method: parse config
+                            try:
+                                config = proxmox.nodes(node_name).lxc(vmid).config.get()
+                                # Look for net* entries with ip= parameter
+                                for key, value in config.items():
+                                    if key.startswith('net') and 'ip=' in str(value):
+                                        import re
+                                        ip_match = re.search(r'ip=(\d+\.\d+\.\d+\.\d+)', str(value))
+                                        if ip_match:
+                                            ips.append(ip_match.group(1))
+                            except:
+                                pass
+
+                        if ips:  # Only add if we found IPs
+                            guests.append({
+                                'type': 'LXC',
+                                'id': vmid,
+                                'name': lxc_name,
+                                'node': node_name,
+                                'ips': ips
+                            })
+            except Exception as e:
+                logging.debug(f"Error querying LXCs on node {node_name}: {e}")
+
+        return guests
+    except Exception as e:
+        logging.error(f"Error querying Proxmox API: {e}")
+        return []
+
+def match_service_to_guest(service_host: str, guests: List[Dict]) -> str:
+    """Match a service IP to a VM/LXC or mark as Node"""
+    for guest in guests:
+        if service_host in guest['ips']:
+            return f"{guest['type']} ({guest['name']})"
+    return 'Node'
+
+def scan_web_services(host: str, hostname: str, full_scan: bool = False) -> List[Dict]:
+    """Scan a host for web services and return list of discovered services"""
+    services = []
+
+    # Get VM/LXC info if API enabled
+    guests = get_proxmox_vms_and_lxcs() if PROXMOX_API_ENABLED else []
+
+    # Determine which ports to scan
+    if full_scan:
+        # Scan full port range (1-65535)
+        ports_to_scan = range(1, 65536)
+    else:
+        # Scan common web ports only
+        ports_to_scan = WEB_PORTS
+
+    # Scan all configured ports
+    open_ports = scan_host_ports(host, ports_to_scan, report_progress=True, is_full_scan=full_scan)
+
+    # Identify each service
+    for port in open_ports:
+        service_info = identify_web_service(host, port)
+        service_info['host'] = host
+        service_info['hostname'] = hostname
+
+        # Determine source (Node/VM/LXC)
+        service_info['source'] = match_service_to_guest(host, guests)
+
+        services.append(service_info)
+
+    return services
+
+def discover_all_web_services(full_scan=False):
+    """Discover web services across all registered nodes"""
+    if not WEB_SERVICES_ENABLED:
+        return
+
+    scan_type = "full port range (1-65535)" if full_scan else "common ports"
+    logging.info(f"Starting web services discovery scan ({scan_type})...")
+
+    # Set scanning state and clear progress
+    with WEB_SERVICES_PROGRESS_LOCK:
+        WEB_SERVICES_SCAN_PROGRESS['scanning'] = True
+        WEB_SERVICES_SCAN_PROGRESS['full_scan'] = full_scan
+        WEB_SERVICES_SCAN_PROGRESS['progress'] = []
+        WEB_SERVICES_SCAN_PROGRESS['total_hosts'] = 0
+        WEB_SERVICES_SCAN_PROGRESS['current_host'] = 0
+        WEB_SERVICES_SCAN_PROGRESS['ports_scanned'] = 0
+        WEB_SERVICES_SCAN_PROGRESS['ports_found'] = 0
+        WEB_SERVICES_SCAN_PROGRESS['start_time'] = time.time()
+        WEB_SERVICES_SCAN_PROGRESS['estimated_remaining'] = 0
+
+    update_scan_progress(f"🔍 Starting web services scan ({scan_type})")
+
+    if full_scan:
+        update_scan_progress(f"⚠️  Full port scan will take several hours. Progress is persistent across browser refreshes.")
+
+    all_services = []
+
+    # Scan local node IP
+    local_info = get_local_node_info()
+    update_scan_progress(f"📡 Scanning local node {local_info['hostname']} ({local_info['ip']})")
+    local_services = scan_web_services(local_info['ip'], local_info['hostname'], full_scan)
+    all_services.extend(local_services)
+    update_scan_progress(f"✓ Found {len(local_services)} services on local node")
+
+    # Scan registered nodes IPs
+    nodes = get_nodes()
+    for node in nodes:
+        if node['status'] == 'online' and not node.get('is_local', False):
+            update_scan_progress(f"📡 Scanning remote node {node['hostname']} ({node['ip']})")
+            node_services = scan_web_services(node['ip'], node['hostname'], full_scan)
+            all_services.extend(node_services)
+            update_scan_progress(f"✓ Found {len(node_services)} services on {node['hostname']}")
+
+    # Get VMs and LXCs to scan their IPs individually
+    if PROXMOX_API_ENABLED:
+        try:
+            update_scan_progress("🔍 Querying Proxmox API for VMs/LXCs...")
+            logging.info("Querying Proxmox API for VMs/LXCs...")
+            guests = get_proxmox_vms_and_lxcs()
+            logging.info(f"Found {len(guests)} VMs/LXCs to scan")
+            update_scan_progress(f"✓ Found {len(guests)} VMs/LXCs to scan")
+
+            # Scan each VM/LXC IP
+            for guest in guests:
+                guest_type = guest['type']
+                guest_name = guest['name']
+                guest_node = guest['node']
+
+                # Only scan VMs/LXCs on the local node
+                if guest_node != local_info['hostname']:
+                    logging.debug(f"Skipping {guest_name} on remote node {guest_node}")
+                    continue
+
+                for guest_ip in guest['ips']:
+                    # Skip internal/Docker IPs
+                    if guest_ip.startswith('127.') or guest_ip.startswith('172.17.') or guest_ip.startswith('172.18.') or guest_ip.startswith('172.19.'):
+                        logging.debug(f"Skipping internal IP {guest_ip} on {guest_name}")
+                        continue
+
+                    # Skip scanning if this IP is already scanned (e.g., same as node IP)
+                    if guest_ip == local_info['ip']:
+                        continue
+
+                    update_scan_progress(f"📡 Scanning {guest_type.upper()} {guest_name} at {guest_ip}")
+                    logging.info(f"Scanning {guest_name} ({guest_type}) at {guest_ip}")
+                    # Scan this VM/LXC IP
+                    guest_services = scan_web_services(guest_ip, f"{guest_name} ({guest_type})", full_scan)
+                    all_services.extend(guest_services)
+                    logging.info(f"  Found {len(guest_services)} services on {guest_name}")
+                    if len(guest_services) > 0:
+                        update_scan_progress(f"✓ Found {len(guest_services)} services on {guest_name}")
+        except Exception as e:
+            logging.error(f"Error scanning VMs/LXCs: {e}")
+    else:
+        logging.info("Proxmox API not enabled, skipping VM/LXC scanning")
+
+    # Update cache
+    with WEB_SERVICES_LOCK:
+        WEB_SERVICES_CACHE['services'] = all_services
+        WEB_SERVICES_CACHE['last_scan'] = time.time()
+        WEB_SERVICES_CACHE['scan_count'] = len(all_services)
+        WEB_SERVICES_CACHE['last_scan_type'] = scan_type
+
+    logging.info(f"Web services discovery complete. Found {len(all_services)} services.")
+    update_scan_progress(f"✅ Scan complete! Found {len(all_services)} web services total")
+
+    # Set scanning to False
+    with WEB_SERVICES_PROGRESS_LOCK:
+        WEB_SERVICES_SCAN_PROGRESS['scanning'] = False
+
+def web_services_discovery_worker():
+    """Background worker for periodic web services discovery"""
+    # Initial delay to allow node discovery to run first
+    time.sleep(30)
+
+    while WEB_SERVICES_ENABLED:
+        try:
+            # Background worker always uses common ports only (not full scan)
+            discover_all_web_services(full_scan=False)
+        except Exception as e:
+            logging.error(f"Web services discovery worker error: {e}")
+
+        # Wait for next scan
+        time.sleep(WEB_SERVICES_SCAN_INTERVAL)
+
 def discover_nodes_on_network(network_range: str = None):
     """Discover ProxMox Ranger nodes on the local network"""
     if not NODE_DISCOVERY_ENABLED:
@@ -181,6 +687,12 @@ if NODE_DISCOVERY_ENABLED:
     discovery_thread = threading.Thread(target=node_discovery_worker, daemon=True)
     discovery_thread.start()
     logging.info("Node discovery worker started")
+
+# Start web services discovery worker thread
+if WEB_SERVICES_ENABLED:
+    web_services_thread = threading.Thread(target=web_services_discovery_worker, daemon=True)
+    web_services_thread.start()
+    logging.info("Web services discovery worker started")
 
 
 
@@ -1253,6 +1765,45 @@ HTML_TEMPLATE = """
             color: var(--accent-info);
             margin: 12px 0;
         }
+
+        /* Web Services Discovery Styling */
+        .border-top-2 {
+            border-top: 2px solid var(--border-color) !important;
+        }
+
+        .text-xs {
+            font-size: 11px;
+        }
+
+        .text-secondary {
+            color: var(--text-secondary);
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .mb-4 {
+            margin-bottom: 16px;
+        }
+
+        .font-mono {
+            font-family: 'SF Mono', 'Courier New', monospace;
+        }
     </style>
 </head>
 <body>
@@ -1451,6 +2002,63 @@ HTML_TEMPLATE = """
                                 </td>
                             </tr>
                             {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Web Services Discovery Card -->
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Web Services Discovery</h2>
+                    <div style="display: flex; align-items: center; gap: 12px; margin-left: 16px;">
+                        <button class="btn btn-ghost btn-sm" onclick="refreshWebServices()">
+                            <span id="refreshWebServicesIcon">🔄</span> Refresh
+                        </button>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+                            <input type="checkbox" id="fullPortScanCheckbox" style="cursor: pointer;">
+                            <span>Full Port Scan (1-65535)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="alert alert-info mb-4">
+                    <strong>Discovered web services on Proxmox nodes</strong>
+                    <br>Last scan: <span id="lastScanTime">Never</span>
+                    <br>Scanning: <span id="scanMode">Common ports only</span>
+                    <br>Click service URLs to open in new tab
+                </div>
+
+                <!-- Live Scan Progress Terminal -->
+                <div id="scanProgressContainer" style="display: none; background: #1a1a1a; border: 1px solid #333; border-radius: 6px; padding: 12px; margin-bottom: 16px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 300px; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333;">
+                        <span style="color: #00ff00; font-weight: bold;">● SCANNING IN PROGRESS</span>
+                        <button onclick="toggleScanProgress()" style="background: transparent; border: 1px solid #555; color: #aaa; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">Hide</button>
+                    </div>
+                    <div id="scanProgressTerminal" style="color: #00ff00;">
+                        <!-- Progress messages will be inserted here -->
+                    </div>
+                </div>
+
+                <div class="table-container" id="webServicesTableContainer">
+                    <table id="webServicesTable">
+                        <thead>
+                            <tr>
+                                <th>Service Name</th>
+                                <th>Host</th>
+                                <th>Port</th>
+                                <th>Protocol</th>
+                                <th>Source</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="webServicesTableBody">
+                            <tr>
+                                <td colspan="6" class="text-center" style="padding: 40px;">
+                                    <span class="spinner"></span>
+                                    <span style="margin-left: 12px;">Scanning for web services...</span>
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 </div>
@@ -1828,6 +2436,311 @@ HTML_TEMPLATE = """
                 btn.disabled = false;
                 btn.innerHTML = originalText;
             });
+        }
+
+        // ===== WEB SERVICES DISCOVERY FUNCTIONS =====
+
+        let webServicesCache = [];
+
+        // Load web services on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadWebServices();
+            checkOngoingScan();  // Resume progress display if scan is running
+        });
+
+        function loadWebServices() {
+            fetch('/api/webservices')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        webServicesCache = data.services;
+                        updateWebServicesTable();
+                        updateLastScanTime(data.last_scan);
+                    } else {
+                        showWebServicesError('Failed to load web services');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading web services:', error);
+                    showWebServicesError('Network error loading web services');
+                });
+        }
+
+        function updateWebServicesTable() {
+            const tbody = document.getElementById('webServicesTableBody');
+
+            if (!webServicesCache || webServicesCache.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-center" style="padding: 40px; color: var(--text-secondary);">
+                            No web services discovered yet. Click Refresh to scan.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            // Group services by hostname for better organization
+            const servicesByHost = {};
+            webServicesCache.forEach(service => {
+                const hostKey = service.hostname || service.host;
+                if (!servicesByHost[hostKey]) {
+                    servicesByHost[hostKey] = [];
+                }
+                servicesByHost[hostKey].push(service);
+            });
+
+            // Build table HTML
+            let html = '';
+            Object.keys(servicesByHost).sort().forEach(hostname => {
+                const services = servicesByHost[hostname];
+                services.forEach((service, index) => {
+                    const rowClass = index === 0 ? 'border-top-2' : '';
+                    html += `
+                        <tr class="${rowClass}">
+                            <td>
+                                <strong>${escapeHtml(service.name)}</strong>
+                                ${service.title && service.title !== service.name ?
+                                    `<br><span class="text-xs text-secondary">${escapeHtml(service.title)}</span>` : ''}
+                            </td>
+                            <td>
+                                <span class="font-mono">${escapeHtml(service.hostname)}</span>
+                                <br><span class="text-xs text-secondary">${escapeHtml(service.host)}</span>
+                            </td>
+                            <td><span class="badge badge-neutral">${service.port}</span></td>
+                            <td>
+                                <span class="badge ${service.protocol === 'https' ? 'badge-success' : 'badge-warning'}">
+                                    ${service.protocol.toUpperCase()}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="badge badge-info">${escapeHtml(service.source)}</span>
+                            </td>
+                            <td>
+                                <a href="${escapeHtml(service.url)}" target="_blank" rel="noopener noreferrer"
+                                   class="btn btn-primary btn-sm">
+                                    Open ↗
+                                </a>
+                            </td>
+                        </tr>
+                    `;
+                });
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        let scanProgressInterval = null;
+
+        function refreshWebServices() {
+            const icon = document.getElementById('refreshWebServicesIcon');
+            const originalIcon = icon.textContent;
+            const fullScanCheckbox = document.getElementById('fullPortScanCheckbox');
+            const fullScan = fullScanCheckbox.checked;
+            const scanModeEl = document.getElementById('scanMode');
+
+            // Show loading state
+            icon.textContent = '⏳';
+
+            // Update scan mode display
+            if (scanModeEl) {
+                scanModeEl.textContent = fullScan ? 'Full port scan (1-65535) - This may take several minutes!' : 'Common ports only';
+            }
+
+            // Show progress terminal
+            showScanProgress();
+
+            // Trigger scan with full_scan parameter
+            fetch('/api/webservices/scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    full_scan: fullScan
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Start polling for progress - will run until scan completes
+                    startProgressPolling();
+
+                    if (fullScan) {
+                        // Full scan warning
+                        icon.textContent = '⏳';
+                        if (scanModeEl) {
+                            scanModeEl.textContent = 'Full port scan (1-65535) - This will take several hours!';
+                        }
+                    }
+                } else {
+                    icon.textContent = '✗';
+                    setTimeout(() => {
+                        icon.textContent = originalIcon;
+                    }, 2000);
+                }
+            })
+            .catch(error => {
+                console.error('Error triggering scan:', error);
+                icon.textContent = originalIcon;
+            });
+        }
+
+        // Check for ongoing scan on page load
+        function checkOngoingScan() {
+            fetch('/api/webservices/progress')
+            .then(response => response.json())
+            .then(data => {
+                if (data.scanning) {
+                    // Resume progress display
+                    showScanProgress();
+                    startProgressPolling();
+                }
+            })
+            .catch(error => {
+                console.error('Error checking ongoing scan:', error);
+            });
+        }
+
+        function startProgressPolling() {
+            // Clear any existing interval
+            if (scanProgressInterval) {
+                clearInterval(scanProgressInterval);
+            }
+
+            // Poll every 500ms
+            scanProgressInterval = setInterval(updateScanProgress, 500);
+        }
+
+        function updateScanProgress() {
+            fetch('/api/webservices/progress')
+            .then(response => response.json())
+            .then(data => {
+                const terminal = document.getElementById('scanProgressTerminal');
+                if (!terminal) return;
+
+                // Update terminal with progress messages and stats
+                let html = '';
+
+                // Show progress stats for full scans
+                if (data.full_scan && data.ports_scanned > 0) {
+                    const percentage = ((data.ports_scanned / data.total_ports) * 100).toFixed(2);
+                    const elapsed = Math.floor(Date.now() / 1000 - data.start_time);
+                    const etaSeconds = data.estimated_remaining;
+                    const etaMinutes = Math.floor(etaSeconds / 60);
+                    const etaHours = Math.floor(etaMinutes / 60);
+
+                    html += `<div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #333; color: #00ffff;">`;
+                    html += `<strong>Progress:</strong> ${data.ports_scanned.toLocaleString()} / ${data.total_ports.toLocaleString()} ports (${percentage}%)<br>`;
+                    html += `<strong>Found:</strong> ${data.ports_found} open ports<br>`;
+                    html += `<strong>Elapsed:</strong> ${Math.floor(elapsed / 60)}m ${elapsed % 60}s<br>`;
+                    if (etaHours > 0) {
+                        html += `<strong>ETA:</strong> ${etaHours}h ${etaMinutes % 60}m remaining<br>`;
+                    } else if (etaMinutes > 0) {
+                        html += `<strong>ETA:</strong> ${etaMinutes}m ${etaSeconds % 60}s remaining<br>`;
+                    } else if (etaSeconds > 0) {
+                        html += `<strong>ETA:</strong> ${etaSeconds}s remaining<br>`;
+                    }
+                    html += `<strong>Current:</strong> ${escapeHtml(data.current_host_name || 'N/A')}<br>`;
+                    html += `</div>`;
+                }
+
+                // Add progress messages
+                if (data.progress && data.progress.length > 0) {
+                    data.progress.forEach(msg => {
+                        const time = new Date(msg.timestamp * 1000).toLocaleTimeString();
+                        html += `<div style="margin-bottom: 4px;"><span style="color: #666;">[${time}]</span> ${escapeHtml(msg.message)}</div>`;
+                    });
+                }
+
+                terminal.innerHTML = html;
+
+                // Auto-scroll to bottom
+                const container = document.getElementById('scanProgressContainer');
+                if (container) {
+                    container.scrollTop = container.scrollHeight;
+                }
+
+                // Stop polling if scan is complete
+                if (!data.scanning && scanProgressInterval) {
+                    clearInterval(scanProgressInterval);
+                    scanProgressInterval = null;
+
+                    // Reload services when complete
+                    loadWebServices();
+
+                    // Hide progress after 10 seconds for quick scans, keep visible for full scans
+                    if (!data.full_scan) {
+                        setTimeout(() => {
+                            hideScanProgress();
+                        }, 10000);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching progress:', error);
+            });
+        }
+
+        function showScanProgress() {
+            const container = document.getElementById('scanProgressContainer');
+            if (container) {
+                container.style.display = 'block';
+            }
+        }
+
+        function hideScanProgress() {
+            const container = document.getElementById('scanProgressContainer');
+            if (container) {
+                container.style.display = 'none';
+            }
+        }
+
+        function toggleScanProgress() {
+            const container = document.getElementById('scanProgressContainer');
+            if (container) {
+                container.style.display = container.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        function updateLastScanTime(timestamp) {
+            const lastScanElement = document.getElementById('lastScanTime');
+            if (!lastScanElement) return;
+
+            if (!timestamp || timestamp === 0) {
+                lastScanElement.textContent = 'Never';
+                return;
+            }
+
+            const now = Date.now() / 1000;
+            const diff = now - timestamp;
+
+            if (diff < 60) {
+                lastScanElement.textContent = 'Just now';
+            } else if (diff < 3600) {
+                const mins = Math.floor(diff / 60);
+                lastScanElement.textContent = `${mins} minute${mins > 1 ? 's' : ''} ago`;
+            } else {
+                const hours = Math.floor(diff / 3600);
+                lastScanElement.textContent = `${hours} hour${hours > 1 ? 's' : ''} ago`;
+            }
+        }
+
+        function showWebServicesError(message) {
+            const tbody = document.getElementById('webServicesTableBody');
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="text-center" style="padding: 40px; color: var(--accent-danger);">
+                        ${escapeHtml(message)}
+                    </td>
+                </tr>
+            `;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
     </script>
 </body>
@@ -2532,6 +3445,73 @@ def api_discover_nodes():
     except Exception as e:
         logging.error(f"API error starting discovery: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/webservices', methods=['GET'])
+@ip_whitelist_required
+def api_get_webservices():
+    """API endpoint - Get all discovered web services"""
+    try:
+        with WEB_SERVICES_LOCK:
+            services = WEB_SERVICES_CACHE.get('services', [])
+            last_scan = WEB_SERVICES_CACHE.get('last_scan', 0)
+
+        return jsonify({
+            'success': True,
+            'services': services,
+            'last_scan': last_scan,
+            'count': len(services)
+        })
+    except Exception as e:
+        logging.error(f"API error getting web services: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/webservices/scan', methods=['POST'])
+@ip_whitelist_required
+def api_scan_webservices():
+    """API endpoint - Trigger immediate web services scan"""
+    try:
+        # Get full_scan parameter from request
+        data = request.get_json() or {}
+        full_scan = data.get('full_scan', False)
+
+        # Run scan in background thread to avoid blocking
+        thread = threading.Thread(target=discover_all_web_services, args=(full_scan,))
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'message': f'Web services scan started in background ({"full port range" if full_scan else "common ports"})'
+        })
+    except Exception as e:
+        logging.error(f"API error triggering web services scan: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/webservices/progress', methods=['GET'])
+@ip_whitelist_required
+def api_webservices_progress():
+    """API endpoint - Get current scan progress"""
+    try:
+        with WEB_SERVICES_PROGRESS_LOCK:
+            progress_data = {
+                'scanning': WEB_SERVICES_SCAN_PROGRESS['scanning'],
+                'full_scan': WEB_SERVICES_SCAN_PROGRESS.get('full_scan', False),
+                'progress': WEB_SERVICES_SCAN_PROGRESS['progress'][-30:],  # Last 30 messages
+                'total_hosts': WEB_SERVICES_SCAN_PROGRESS['total_hosts'],
+                'current_host': WEB_SERVICES_SCAN_PROGRESS['current_host'],
+                'current_host_name': WEB_SERVICES_SCAN_PROGRESS.get('current_host_name', ''),
+                'total_ports': WEB_SERVICES_SCAN_PROGRESS['total_ports'],
+                'current_port': WEB_SERVICES_SCAN_PROGRESS['current_port'],
+                'ports_scanned': WEB_SERVICES_SCAN_PROGRESS.get('ports_scanned', 0),
+                'ports_found': WEB_SERVICES_SCAN_PROGRESS.get('ports_found', 0),
+                'start_time': WEB_SERVICES_SCAN_PROGRESS.get('start_time', 0),
+                'estimated_remaining': WEB_SERVICES_SCAN_PROGRESS.get('estimated_remaining', 0)
+            }
+        return jsonify(progress_data)
+    except Exception as e:
+        logging.error(f"API error getting web services progress: {e}")
+        return jsonify({'scanning': False, 'progress': [], 'error': str(e)}), 500
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -3284,6 +4264,10 @@ def logs():
 if __name__ == '__main__':
     # Ensure Samba is configured properly for username authentication
     logging.info("Starting Hot-Swap Web UI")
+
+    # Load any in-progress scan from disk
+    load_scan_progress()
+
     ensure_samba_config()
     logging.info("Starting Flask application on port 8010")
     app.run(host='0.0.0.0', port=8010, debug=False)
